@@ -71,7 +71,7 @@
 - Consumes: none.
 - Produces: Vue application routes `/` and `/studio/:draftId`, CSS tokens, test environment, and installable PWA metadata.
 
-- [ ] **Step 1: Create the package manifest and configuration**
+- [x] **Step 1: Create the package manifest and configuration**
 
 Create `package.json` with scripts `dev`, `build`, `preview`, `test`, `test:run`, `test:e2e`, and `typecheck`; runtime dependencies listed in the Tech Stack; and development dependencies for Vue, Vite, Vitest, jsdom, TypeScript, Playwright, and Vue Test Utils.
 
@@ -101,7 +101,7 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 2: Write the failing shell test**
+- [x] **Step 2: Write the failing shell test**
 
 ```ts
 it("shows the product name and new draft action", async () => {
@@ -111,23 +111,23 @@ it("shows the product name and new draft action", async () => {
 })
 ```
 
-- [ ] **Step 3: Run the shell test and verify failure**
+- [x] **Step 3: Run the shell test and verify failure**
 
 Run: `npm run test:run -- tests/component/app-shell.test.ts`
 
 Expected: FAIL because the app bootstrap and route components do not exist.
 
-- [ ] **Step 4: Implement the minimum app shell**
+- [x] **Step 4: Implement the minimum app shell**
 
 `App.vue` must render `RouterView`; `HomeView.vue` must render the icon, product name, `로컬 기능형 MVP` badge, new-draft button, empty drafts section, and five-day privacy note. `StudioView.vue` initially renders a route-valid shell inside the same layout. `styles.css` must define the five approved icon colors as `--ap-*` variables, a 44px control minimum, a 760px content maximum, focus-visible rings, safe-area padding, reduced-motion behavior, and mobile/desktop responsive rules. `scripts/generate-icons.mjs` must use `sharp` to render the approved SVG at 180, 192, and 512px; run it once before the build test.
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/component/app-shell.test.ts && npm run build`
 
 Expected: all commands exit 0; `dist/manifest.webmanifest` and the app shell are generated.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add package.json package-lock.json index.html tsconfig.json vite.config.ts scripts/generate-icons.mjs public src/app src/views tests/setup.ts tests/component/app-shell.test.ts

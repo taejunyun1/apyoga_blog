@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">A.P YOGA Content Studio icon</title>
+  <desc id="desc">A minimal lotus and content card symbol inside a rounded square.</desc>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#F6F1E8"/>
+  <path d="M256 118c-42 45-62 86-56 122 6 34 28 57 56 72 28-15 50-38 56-72 6-36-14-77-56-122Z"
+        fill="#E7B98A" stroke="#2B2B2B" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M152 170c-16 56-8 101 24 132 25 24 56 31 88 27-4-34-17-63-44-84-28-22-51-48-68-75Z"
+        fill="#F0D7B5" stroke="#2B2B2B" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M360 170c16 56 8 101-24 132-25 24-56 31-88 27 4-34 17-63 44-84 28-22 51-48 68-75Z"
+        fill="#F0D7B5" stroke="#2B2B2B" stroke-width="10" stroke-linejoin="round"/>
+  <rect x="150" y="318" width="212" height="92" rx="28" fill="#FFFFFF" stroke="#2B2B2B" stroke-width="10"/>
+  <path d="M190 350h132M190 380h90" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round"/>
+</svg>
