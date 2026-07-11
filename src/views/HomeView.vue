@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted } from "vue"
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
+import LogoutButton from "@/features/auth/LogoutButton.vue"
 import { useStudioStore } from "@/features/studio/studio-store"
 
 const router = useRouter()
 const store = useStudioStore()
+const logoutError = ref<string | null>(null)
 
 onMounted(() => store.loadHome())
 
@@ -22,9 +24,13 @@ function readableDate(value: string) {
   <main class="app-page">
     <div class="app-content">
       <header class="brand-lockup">
-        <img src="/app-icon.svg" alt="" />
-        <h1>A.P YOGA Content Studio</h1>
+        <div class="brand-lockup__identity">
+          <img src="/app-icon.svg" alt="" />
+          <h1>A.P YOGA Content Studio</h1>
+        </div>
+        <LogoutButton @error="logoutError = $event" />
       </header>
+      <p v-if="logoutError" class="auth-error logout-error" role="alert">{{ logoutError }}</p>
 
       <button class="primary-action" type="button" @click="startDraft">
         새 글 만들기

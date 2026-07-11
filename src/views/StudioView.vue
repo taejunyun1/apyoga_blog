@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import LogoutButton from "@/features/auth/LogoutButton.vue"
 import BottomActionBar from "@/features/studio/BottomActionBar.vue"
 import ContentBriefReview from "@/features/studio/ContentBriefReview.vue"
 import ErrorBanner from "@/features/studio/ErrorBanner.vue"
@@ -94,7 +95,7 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
           {{ store.saveStatus === 'error' ? '저장 실패' : store.saveStatus === 'restored' ? '작성 중인 글을 복원했어요' : store.saveStatus === 'saving' ? '저장 중…' : '임시 저장됨' }}
         </small>
       </div>
-      <img src="/app-icon.svg" alt="" />
+      <LogoutButton @error="error = $event" />
     </header>
 
     <ProgressStepper :current="store.draft.step" />
