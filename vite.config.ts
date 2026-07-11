@@ -8,6 +8,9 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        globIgnores: ["**/mediapipe/**"]
+      },
       manifest: {
         name: "A.P YOGA Content Studio",
         short_name: "AP Content",

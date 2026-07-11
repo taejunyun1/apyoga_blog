@@ -249,7 +249,7 @@ git commit -m "feat: add studio domain and local AI provider"
 - Consumes: `DraftRepository`, `ImageRepository`, `ImageProcessor`, `FaceDetector`, and `ClipboardGateway` from `src/domain/ports.ts`.
 - Produces: `prepareImage(file): Promise<PreparedImage>`, `DexieStudioRepository`, `MediaPipeFaceDetector.detect(source): Promise<DetectedFace[]>`, and `BrowserClipboard.copy(text): Promise<{ok: boolean; error?: string}>`.
 
-- [ ] **Step 1: Write failing adapter tests**
+- [x] **Step 1: Write failing adapter tests**
 
 ```ts
 it("rejects the eleventh image before decoding", async () => {
@@ -270,31 +270,31 @@ it("deletes only expired edited blobs and drafts", async () => {
 })
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run test:run -- tests/unit/image-processor.test.ts tests/unit/dexie-repository.test.ts tests/unit/browser-clipboard.test.ts`
 
 Expected: FAIL because adapter modules do not exist.
 
-- [ ] **Step 3: Implement image preparation**
+- [x] **Step 3: Implement image preparation**
 
 `prepareImage()` must convert HEIC/HEIF with `heic2any`, decode into an image, calculate a maximum 1280px edge, draw to a new canvas, export `image/jpeg` at quality `0.84`, calculate SHA-256, and return only the edited Blob plus width, height, hash, thumbnail URL, and expiry. Revoke transient object URLs when a draft closes.
 
-- [ ] **Step 4: Implement Dexie persistence**
+- [x] **Step 4: Implement Dexie persistence**
 
 Use three tables: `drafts` keyed by `id`, `images` keyed by `id` with `draftId` and `expiresAt` indexes, and `history` keyed by `id` with `finalizedAt`. Use one transaction when saving draft metadata and edited blobs. `cleanupExpired(now)` must remove expired image rows and drafts that no longer have usable images; finalized text history remains available without blobs.
 
-- [ ] **Step 5: Implement MediaPipe and clipboard adapters**
+- [x] **Step 5: Implement MediaPipe and clipboard adapters**
 
 Lazy-load `FilesetResolver` and `FaceDetector` only on the mask step. Use `runningMode: "IMAGE"`, convert pixel boxes to normalized coordinates with 25% padding, and return an empty array plus a nonfatal diagnostic when initialization fails. Clipboard must call `navigator.clipboard.writeText` and return an explicit failure instead of throwing into the component.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/unit/image-processor.test.ts tests/unit/dexie-repository.test.ts tests/unit/browser-clipboard.test.ts`
 
 Expected: PASS; persistence tests use `fake-indexeddb` and never store original `File` objects.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/adapters public/models tests/unit package.json package-lock.json
