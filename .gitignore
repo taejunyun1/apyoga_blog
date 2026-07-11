@@ -7,3 +7,5 @@ test-results/
 .wrangler/
 .dev.vars
 .dev.vars.*
+.worktrees/
+.superpowers/
