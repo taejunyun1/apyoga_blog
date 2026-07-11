@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest"
 const root = path.resolve(import.meta.dirname, "../..")
 
 describe("Cloudflare Pages deployment", () => {
+  it("routes authentication requests through Pages Functions", () => {
+    const routesPath = path.join(root, "public/_routes.json")
+    expect(existsSync(routesPath)).toBe(true)
+    if (!existsSync(routesPath)) return
+
+    const routes = JSON.parse(readFileSync(routesPath, "utf8")) as { include: string[] }
+    expect(routes.include).toContain("/api/*")
+  })
+
   it("defines a production Pages project for the Vite dist directory", () => {
     const configPath = path.join(root, "wrangler.jsonc")
     expect(existsSync(configPath)).toBe(true)
@@ -24,6 +33,8 @@ describe("Cloudflare Pages deployment", () => {
 
     expect(packageJson.scripts["predeploy:cloudflare"]).toBe("npm run build")
     expect(packageJson.scripts["deploy:cloudflare"]).toBe("wrangler pages deploy --branch master")
+    expect(packageJson.scripts["typecheck:functions"]).toBe("tsc -p tsconfig.functions.json --noEmit")
+    expect(packageJson.scripts.build).toBe("npm run typecheck && npm run typecheck:functions && vite build")
     expect(packageJson.devDependencies.wrangler).toMatch(/^\^4\./)
   })
 

@@ -9,7 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       workbox: {
-        globIgnores: ["**/mediapipe/**"]
+        globIgnores: ["**/mediapipe/**"],
+        navigateFallbackDenylist: [/^\/api\//]
       },
       manifest: {
         name: "A.P YOGA Content Studio",

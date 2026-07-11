@@ -8,12 +8,13 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "npm run typecheck && npm run typecheck:functions && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "vue-tsc --noEmit",
+    "typecheck:functions": "tsc -p tsconfig.functions.json --noEmit",
     "icons": "node scripts/generate-icons.mjs",
     "predeploy:cloudflare": "npm run build",
     "deploy:cloudflare": "wrangler pages deploy --branch master"
