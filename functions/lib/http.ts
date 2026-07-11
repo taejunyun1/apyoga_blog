@@ -10,7 +10,12 @@ export function cookieValue(request: Request, name = SESSION_COOKIE): string | n
     ?.split(";")
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${name}=`))
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : null
+  if (!match) return null
+  try {
+    return decodeURIComponent(match.slice(name.length + 1))
+  } catch {
+    return null
+  }
 }
 
 export function sessionCookie(token: string): string {

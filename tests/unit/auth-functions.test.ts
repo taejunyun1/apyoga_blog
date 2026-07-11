@@ -24,6 +24,17 @@ describe("authentication Functions", () => {
     await expect(response.json()).resolves.toEqual({ authenticated: false })
   })
 
+  it("returns 401 for a malformed session cookie", async () => {
+    const request = new Request("https://studio.example/api/auth/session", {
+      headers: { Cookie: "ap_yoga_session=%" },
+    })
+
+    const response = await handleSession(request, env)
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ authenticated: false })
+  })
+
   it("returns 200 for a valid session cookie", async () => {
     const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
     const request = new Request("https://studio.example/api/auth/session", {
