@@ -150,7 +150,7 @@ git commit -m "feat: scaffold content studio PWA"
 - Consumes: no earlier runtime interface.
 - Produces: `StudioDraft`, `StudioImage`, `FaceMask`, `ContentBrief`, `NaverOutput`, `InstagramOutput`, `ReviewOutput`, `AIProvider`, `createDraft()`, `reorderImages()`, `setCoverImage()`, `expiresAtFor()`, and `LocalAIProvider`.
 
-- [ ] **Step 1: Write failing domain tests**
+- [x] **Step 1: Write failing domain tests**
 
 ```ts
 it("keeps exactly one cover after reordering", () => {
@@ -179,13 +179,13 @@ it("rewrites only the requested section", async () => {
 })
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run test:run -- tests/unit/domain-rules.test.ts tests/unit/local-ai-provider.test.ts`
 
 Expected: FAIL because domain modules do not exist.
 
-- [ ] **Step 3: Implement exact domain types**
+- [x] **Step 3: Implement exact domain types**
 
 Define `WorkflowStep` as `"photos" | "mask" | "organize" | "memo" | "brief" | "generating" | "results"`. Define mask geometry as normalized `x`, `y`, `width`, `height`, and `rotation`; image status as `processing | ready | error`; channel status as `idle | loading | success | error`. Keep `editedBlobId` separate from any transient object URL.
 
@@ -214,17 +214,17 @@ interface StudioDraft {
 }
 ```
 
-- [ ] **Step 4: Implement `LocalAIProvider`**
+- [x] **Step 4: Implement `LocalAIProvider`**
 
 The provider must derive all text from normalized memo fields and fixed Korean templates, produce three title/intro/hook options, distinct long and short channel copy, 5–8 hashtags, image placements, quality checks, and deterministic section rewrites. It must increment no image-analysis counter during `rewriteSection`; tests spy on `analyzeImages` to prove this.
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/unit/domain-rules.test.ts tests/unit/local-ai-provider.test.ts`
 
 Expected: PASS with stable snapshots or exact field assertions.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/domain src/adapters/local-ai-provider.ts tests/unit
