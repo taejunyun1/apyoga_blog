@@ -5,29 +5,35 @@ import { clearFailures, rateLimitKey, readFailures, recordFailure } from "../../
 
 const INVALID = { message: "아이디 또는 비밀번호를 확인해 주세요." }
 
-export async function handleLogin(request: Request, env: AuthEnv): Promise<Response> {
+export async function handleLogin(
+  request: Request,
+  env: AuthEnv,
+  nowSeconds = Math.floor(Date.now() / 1_000),
+): Promise<Response> {
   if (!isSameOriginJson(request)) return json({ message: "요청을 확인해 주세요." }, 403)
   if (!env.AUTH_USERNAME || !env.AUTH_PASSWORD_HASH || !env.SESSION_SECRET || !env.AUTH_RATE_LIMIT) {
     return json({ message: "로그인을 처리하지 못했어요. 잠시 후 다시 시도해 주세요." }, 500)
   }
 
   const key = await rateLimitKey(request, env.SESSION_SECRET)
-  const failures = await readFailures(env, key)
-  if (failures >= 5) return json({ message: "로그인 시도가 많아요. 10분 후 다시 시도해 주세요." }, 429)
+  const failures = await readFailures(env, key, nowSeconds)
+  if (failures.count >= 5) return json({ message: "로그인 시도가 많아요. 10분 후 다시 시도해 주세요." }, 429)
 
-  let body: { username?: unknown; password?: unknown }
+  let body: unknown
   try {
-    body = await request.json() as typeof body
+    body = await request.json()
   } catch {
     return json({ message: "요청을 확인해 주세요." }, 400)
   }
+  if (typeof body !== "object" || body === null) return json({ message: "요청을 확인해 주세요." }, 400)
 
-  const username = typeof body.username === "string" ? body.username : ""
-  const password = typeof body.password === "string" ? body.password : ""
+  const fields = body as { username?: unknown; password?: unknown }
+  const username = typeof fields.username === "string" ? fields.username : ""
+  const password = typeof fields.password === "string" ? fields.password : ""
   const passwordValid = await verifyPassword(password, env.AUTH_PASSWORD_HASH)
   const valid = username === env.AUTH_USERNAME && passwordValid
   if (!valid) {
-    await recordFailure(env, key, failures)
+    await recordFailure(env, key, failures, nowSeconds)
     return json(INVALID, 401)
   }
 

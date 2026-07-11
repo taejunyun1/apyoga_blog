@@ -120,12 +120,54 @@ describe("authentication Functions", () => {
   it("locks the sixth observed failure for ten minutes", async () => {
     const request = () => loginRequest("wrong-user", "wrong-password", { headers: { "CF-Connecting-IP": "203.0.113.42" } })
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      expect((await handleLogin(request(), loginEnv)).status).toBe(401)
+      expect((await handleLogin(request(), loginEnv, 1_000)).status).toBe(401)
     }
 
-    expect((await handleLogin(request(), loginEnv)).status).toBe(429)
-    expect(loginKv.writes.at(-1)).toMatchObject({ value: "5", expirationTtl: 600 })
+    expect((await handleLogin(request(), loginEnv, 1_000)).status).toBe(429)
+    expect(loginKv.writes.at(-1)).toMatchObject({
+      value: JSON.stringify({ count: 5, expiresAt: 1_600 }),
+      expirationTtl: 600,
+    })
     expect([...loginKv.values.keys()].every((key) => !key.includes("203.0.113.42"))).toBe(true)
+  })
+
+  it("keeps failures in a fixed ten-minute window instead of extending it", async () => {
+    const request = () => loginRequest("wrong-user", "wrong-password", { headers: { "CF-Connecting-IP": "203.0.113.42" } })
+
+    for (const nowSeconds of [1_000, 1_100, 1_200, 1_300, 1_599, 1_601, 1_602]) {
+      expect((await handleLogin(request(), loginEnv, nowSeconds)).status).toBe(401)
+    }
+
+    expect(loginKv.writes[0]).toMatchObject({
+      value: JSON.stringify({ count: 1, expiresAt: 1_600 }),
+      expirationTtl: 600,
+    })
+    expect(loginKv.writes[1]).toMatchObject({
+      value: JSON.stringify({ count: 2, expiresAt: 1_600 }),
+      expirationTtl: 500,
+    })
+    expect(loginKv.writes[4]).toMatchObject({
+      value: JSON.stringify({ count: 5, expiresAt: 1_600 }),
+      expirationTtl: 60,
+    })
+    expect(loginKv.writes.at(-1)).toMatchObject({
+      value: JSON.stringify({ count: 2, expiresAt: 2_201 }),
+      expirationTtl: 599,
+    })
+  })
+
+  it.each([
+    "not-json",
+    JSON.stringify({ count: -1, expiresAt: 1_600 }),
+    JSON.stringify({ count: 1.5, expiresAt: 1_600 }),
+  ])("fails closed when the stored failure state is invalid: %s", async (stored) => {
+    const request = loginRequest("wrong-user", "wrong-password", { headers: { "CF-Connecting-IP": "203.0.113.42" } })
+    const key = await rateLimitKey(request, loginSecret)
+    loginKv.values.set(key, stored)
+
+    const response = await handleLogin(request, loginEnv, 1_000)
+
+    expect(response.status).toBe(429)
   })
 
   it("clears observed failures after a successful login", async () => {
@@ -166,6 +208,19 @@ describe("authentication Functions", () => {
       method: "POST",
       headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
       body: "{",
+    })
+
+    const response = await handleLogin(request, loginEnv)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ message: "요청을 확인해 주세요." })
+  })
+
+  it("rejects a JSON null login body with the generic request message", async () => {
+    const request = new Request("https://studio.example/api/auth/login", {
+      method: "POST",
+      headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
+      body: "null",
     })
 
     const response = await handleLogin(request, loginEnv)
