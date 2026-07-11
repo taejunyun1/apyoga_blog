@@ -1,4 +1,6 @@
-export function studioImages(count = 3) {
+import type { StudioImage } from "@/domain/studio"
+
+export function studioImages(count = 3): StudioImage[] {
   return Array.from({ length: count }, (_, index) => ({
     id: `image-${index + 1}`,
     name: `photo-${index + 1}.jpg`,
@@ -9,7 +11,7 @@ export function studioImages(count = 3) {
     hash: `hash-${index + 1}`,
     sortOrder: index,
     isCover: index === 0,
-    status: "ready" as const,
+    status: "ready",
     error: null,
     faceCount: index === 0 ? 2 : 0,
     masks: [],

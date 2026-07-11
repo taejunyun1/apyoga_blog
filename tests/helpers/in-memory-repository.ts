@@ -20,4 +20,5 @@ export class InMemoryRepository {
   async finalize(draft: StudioDraft) { this.history.set(draft.id, JSON.parse(JSON.stringify(draft)) as StudioDraft) }
   async listHistory() { return [...this.history.values()] }
   async deleteDraft(id: string) { this.drafts.delete(id) }
+  async deleteImage(id: string) { this.images.delete(id) }
 }

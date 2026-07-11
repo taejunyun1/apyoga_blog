@@ -2,10 +2,12 @@ import { defineStore } from "pinia"
 import { ref } from "vue"
 import { BrowserClipboard } from "@/adapters/browser-clipboard"
 import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-repository"
-import { prepareImage } from "@/adapters/image-processor"
+import { applyMasksToBlob, prepareImage, validateImageSelection } from "@/adapters/image-processor"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
+import { MediaPipeFaceDetector, type DetectedFace } from "@/adapters/mediapipe-face-detector"
 import type { AIProvider } from "@/domain/ports"
-import { createDraft, type StudioDraft } from "@/domain/studio"
+import { reorderImages, setCoverImage } from "@/domain/rules"
+import { createDraft, type FaceMask, type StudioDraft, type StudioImage } from "@/domain/studio"
 import type { RewriteInput } from "@/domain/ports"
 
 export interface StudioRepository {
@@ -17,6 +19,7 @@ export interface StudioRepository {
   finalize(draft: StudioDraft): Promise<void>
   listHistory(): Promise<StudioDraft[]>
   deleteDraft(id: string): Promise<void>
+  deleteImage(id: string): Promise<void>
 }
 
 export interface StudioServices {
@@ -24,6 +27,8 @@ export interface StudioServices {
   ai: AIProvider
   clipboard: BrowserClipboard
   prepareImage: typeof prepareImage
+  applyMasks: typeof applyMasksToBlob
+  faceDetector: { detect(source: HTMLImageElement): Promise<DetectedFace[]>; lastDiagnostic: string | null }
 }
 
 function defaultServices(): StudioServices {
@@ -31,7 +36,9 @@ function defaultServices(): StudioServices {
     repository: new DexieStudioRepository(),
     ai: new LocalAIProvider(),
     clipboard: new BrowserClipboard(),
-    prepareImage
+    prepareImage,
+    applyMasks: applyMasksToBlob,
+    faceDetector: new MediaPipeFaceDetector()
   }
 }
 
@@ -51,6 +58,9 @@ export const useStudioStore = defineStore("studio", () => {
   const history = ref<StudioDraft[]>([])
   const saveStatus = ref<"idle" | "saving" | "saved" | "error" | "restored">("idle")
   const lastSavedAt = ref<string | null>(null)
+  const busy = ref(false)
+  const faceDetectionMessage = ref<string | null>(null)
+  const transientFiles = new Map<string, File>()
 
   async function saveNow() {
     if (!draft.value) return
@@ -87,6 +97,160 @@ export const useStudioStore = defineStore("studio", () => {
     draft.value = restored
     saveStatus.value = "restored"
     return restored
+  }
+
+  async function addFiles(files: File[]) {
+    if (!draft.value) throw new Error("먼저 새 글을 만들어 주세요.")
+    validateImageSelection(files, draft.value.images.length)
+    const newImages: StudioImage[] = files.map((file, index) => {
+      const id = crypto.randomUUID()
+      transientFiles.set(id, file)
+      return {
+        id,
+        name: file.name,
+        editedBlobId: crypto.randomUUID(),
+        thumbnailUrl: "",
+        width: 0,
+        height: 0,
+        hash: "",
+        sortOrder: draft.value!.images.length + index,
+        isCover: false,
+        status: "processing",
+        error: null,
+        faceCount: 0,
+        masks: [],
+        maskConfirmedAt: null,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date().toISOString()
+      }
+    })
+    draft.value.images.push(...newImages)
+
+    await Promise.all(newImages.map(async (image) => {
+      const file = transientFiles.get(image.id)
+      if (!file || !draft.value) return
+      try {
+        const prepared = await services.prepareImage(file)
+        Object.assign(image, {
+          thumbnailUrl: prepared.thumbnailUrl,
+          width: prepared.width,
+          height: prepared.height,
+          hash: prepared.hash,
+          status: "ready" as const,
+          error: null,
+          createdAt: prepared.createdAt,
+          expiresAt: prepared.expiresAt
+        })
+        if (!draft.value.images.some((item) => item.isCover && item.status === "ready")) image.isCover = true
+        await services.repository.saveDraft(draft.value, [{
+          id: image.editedBlobId,
+          draftId: draft.value.id,
+          blob: prepared.blob,
+          expiresAt: prepared.expiresAt
+        }])
+      } catch (error) {
+        image.status = "error"
+        image.error = errorMessage(error)
+      }
+    }))
+    draft.value.updatedAt = new Date().toISOString()
+    await saveNow()
+  }
+
+  async function beginMasking() {
+    if (!draft.value || !draft.value.images.some((image) => image.status === "ready")) {
+      throw new Error("처리 완료된 사진을 한 장 이상 준비해 주세요.")
+    }
+    busy.value = true
+    faceDetectionMessage.value = null
+    draft.value.step = "mask"
+    try {
+      for (const studioImage of draft.value.images.filter((image) => image.status === "ready" && image.masks.length === 0)) {
+        const element = new Image()
+        element.src = studioImage.thumbnailUrl
+        if (typeof element.decode === "function") await element.decode().catch(() => undefined)
+        const detected = await services.faceDetector.detect(element)
+        studioImage.faceCount = detected.length
+        studioImage.masks = detected.map((face) => ({
+          id: crypto.randomUUID(),
+          style: "blur",
+          x: face.x,
+          y: face.y,
+          width: face.width,
+          height: face.height,
+          rotation: 0,
+          source: "detected"
+        }))
+      }
+      const detectedCount = draft.value.images.reduce((sum, image) => sum + image.faceCount, 0)
+      faceDetectionMessage.value = detectedCount > 0
+        ? `얼굴 ${detectedCount}개를 찾았어요. 가림 위치를 직접 확인해 주세요.`
+        : "자동 감지 결과가 없어요. 필요하면 수동으로 얼굴을 추가해 주세요."
+      await saveNow()
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function retryImage(imageId: string) {
+    const image = draft.value?.images.find((item) => item.id === imageId)
+    const file = transientFiles.get(imageId)
+    if (!image || !file) throw new Error("원본 선택 정보가 없어 사진을 다시 선택해 주세요.")
+    image.status = "processing"
+    image.error = null
+    const prepared = await services.prepareImage(file)
+    Object.assign(image, {
+      thumbnailUrl: prepared.thumbnailUrl,
+      width: prepared.width,
+      height: prepared.height,
+      hash: prepared.hash,
+      createdAt: prepared.createdAt,
+      expiresAt: prepared.expiresAt,
+      status: "ready" as const,
+      error: null
+    })
+    await services.repository.saveDraft(draft.value!, [{ id: image.editedBlobId, draftId: draft.value!.id, blob: prepared.blob, expiresAt: prepared.expiresAt }])
+    await saveNow()
+  }
+
+  function updateMasks(imageId: string, masks: FaceMask[]) {
+    const image = draft.value?.images.find((item) => item.id === imageId)
+    if (!image) return
+    image.masks = JSON.parse(JSON.stringify(masks)) as FaceMask[]
+    image.maskConfirmedAt = null
+  }
+
+  async function confirmMasks(now = new Date().toISOString()) {
+    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
+    for (const image of draft.value.images.filter((item) => item.status === "ready")) {
+      const source = await services.repository.getImageBlob(image.editedBlobId)
+      if (!source) throw new Error(`${image.name} 편집본을 찾지 못했어요.`)
+      const masked = await services.applyMasks(source, image.masks)
+      await services.repository.saveDraft(draft.value, [{ id: image.editedBlobId, draftId: draft.value.id, blob: masked, expiresAt: image.expiresAt }])
+      image.maskConfirmedAt = now
+    }
+    draft.value.step = "organize"
+    draft.value.updatedAt = now
+    await saveNow()
+  }
+
+  function reorder(from: number, to: number) {
+    if (draft.value) draft.value.images = reorderImages(draft.value.images, from, to)
+  }
+
+  function chooseCover(imageId: string) {
+    if (draft.value) draft.value.images = setCoverImage(draft.value.images, imageId)
+  }
+
+  async function removeImage(imageId: string) {
+    if (!draft.value) return
+    const image = draft.value.images.find((item) => item.id === imageId)
+    if (image?.thumbnailUrl.startsWith("blob:")) URL.revokeObjectURL(image.thumbnailUrl)
+    draft.value.images = draft.value.images.filter((item) => item.id !== imageId).map((item, sortOrder) => ({ ...item, sortOrder }))
+    if (image?.isCover && draft.value.images[0]) draft.value.images[0].isCover = true
+    transientFiles.delete(imageId)
+    if (image) await services.repository.deleteImage(image.editedBlobId)
+    await saveNow()
   }
 
   async function generateAll() {
@@ -158,7 +322,11 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
-  return { draft, drafts, history, saveStatus, lastSavedAt, create, loadHome, load, saveNow, generateAll, rewrite }
+  return {
+    draft, drafts, history, saveStatus, lastSavedAt, busy, faceDetectionMessage,
+    create, loadHome, load, saveNow, addFiles, beginMasking, retryImage, updateMasks, confirmMasks,
+    reorder, chooseCover, removeImage, generateAll, rewrite
+  }
 })
 
 function errorMessage(error: unknown): string {

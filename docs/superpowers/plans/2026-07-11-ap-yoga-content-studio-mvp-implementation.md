@@ -383,7 +383,7 @@ git commit -m "feat: add resumable studio workflow"
 - Consumes: `StudioImage`, `FaceMask`, and store actions from Task 4.
 - Produces: events `files-selected`, `retry-image`, `update-masks`, `confirm-masks`, `reorder`, `set-cover`, and `remove-image`.
 
-- [ ] **Step 1: Write failing interaction tests**
+- [x] **Step 1: Write failing interaction tests**
 
 ```ts
 it("shows per-image success and failure without dropping successful files", async () => {
@@ -403,31 +403,31 @@ it("adds, selects, transforms, deletes, and undoes a mask", async () => {
 })
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run test:run -- tests/component/photo-uploader.test.ts tests/component/face-mask-editor.test.ts tests/component/photo-organizer.test.ts`
 
 Expected: FAIL because the components do not exist.
 
-- [ ] **Step 3: Implement upload and progress UI**
+- [x] **Step 3: Implement upload and progress UI**
 
 Use a hidden multiple file input with `accept="image/jpeg,image/png,image/webp,image/heic,image/heif"`. Enforce 10 total images before processing. Render a card per file with `변환 중`, `압축 중`, `처리 완료`, or a concrete error and retry action. Continue to the mask step when at least one image is ready.
 
-- [ ] **Step 4: Implement Konva mask editor**
+- [x] **Step 4: Implement Konva mask editor**
 
 Render the edited photo in a responsive Konva stage. Render each mask as a group: clipped blur approximation for `blur`, white ellipse for `white`, and the provided lotus/card icon for `sticker`. A selected group gets a Konva Transformer with resize and rotate enabled. Store normalized geometry after drag/transform, clamp it to image bounds, keep one-level undo snapshots, and offer `모든 얼굴에 적용` for style changes. Pinch scales the selected mask using two active pointers; mouse and one-pointer drag remain available.
 
-- [ ] **Step 5: Implement photo organization**
+- [x] **Step 5: Implement photo organization**
 
 Provide move-left/right controls that work with keyboard and touch, a single cover radio action, delete confirmation, face count versus mask count status, and image expiry date. Do not auto-accept any suggested cover.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/component/photo-uploader.test.ts tests/component/face-mask-editor.test.ts tests/component/photo-organizer.test.ts`
 
 Expected: PASS; all icon-only buttons have accessible names and all primary controls meet the 44px CSS contract.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/features/studio src/views/StudioView.vue tests/component

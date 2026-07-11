@@ -29,6 +29,9 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) }
   },
+  build: {
+    chunkSizeWarningLimit: 1500
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],

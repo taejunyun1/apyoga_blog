@@ -99,6 +99,10 @@ export class DexieStudioRepository {
     })
   }
 
+  async deleteImage(id: string): Promise<void> {
+    await this.db.images.delete(id)
+  }
+
   async destroy(): Promise<void> {
     this.db.close()
     await this.db.delete()

@@ -54,4 +54,14 @@ describe("DexieStudioRepository", () => {
     expect(await repo.listHistory()).toHaveLength(1)
     expect(await repo.getImageBlob("blob-1")).toBeUndefined()
   })
+
+  it("deletes one edited blob when a photo is removed", async () => {
+    const repo = repository()
+    const draft = { ...createDraft(), images: studioImages(1) }
+    await repo.saveDraft(draft, [{ id: "blob-1", draftId: draft.id, blob: blob(["pixels"]), expiresAt: "2026-07-16T00:00:00.000Z" }])
+
+    await repo.deleteImage("blob-1")
+
+    expect(await repo.getImageBlob("blob-1")).toBeUndefined()
+  })
 })

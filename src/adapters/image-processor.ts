@@ -1,5 +1,6 @@
 import imageCompression from "browser-image-compression"
 import { expiresAtFor } from "@/domain/rules"
+import type { FaceMask } from "@/domain/studio"
 
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"])
 
@@ -11,6 +12,14 @@ export interface PreparedImage {
   hash: string
   createdAt: string
   expiresAt: string
+}
+
+export interface PixelMaskGeometry {
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
 }
 
 export function validateImageSelection(files: File[], existingCount: number): void {
@@ -28,6 +37,16 @@ export function containSize(width: number, height: number, maxEdge: number): { w
 
 export function isHeicFile(file: File): boolean {
   return file.type === "image/heic" || file.type === "image/heif" || /\.(heic|heif)$/i.test(file.name)
+}
+
+export function maskGeometryToPixels(mask: FaceMask, width: number, height: number): PixelMaskGeometry {
+  return {
+    x: Math.round(mask.x * width),
+    y: Math.round(mask.y * height),
+    width: Math.round(mask.width * width),
+    height: Math.round(mask.height * height),
+    rotation: mask.rotation
+  }
 }
 
 async function toBrowserImage(blob: Blob): Promise<ImageBitmap | HTMLImageElement> {
@@ -88,4 +107,60 @@ export async function prepareImage(file: File, now = new Date().toISOString()): 
     createdAt: now,
     expiresAt: expiresAtFor(now)
   }
+}
+
+export async function applyMasksToBlob(source: Blob, masks: FaceMask[]): Promise<Blob> {
+  const image = await toBrowserImage(source)
+  const canvas = document.createElement("canvas")
+  canvas.width = image.width
+  canvas.height = image.height
+  const context = canvas.getContext("2d", { alpha: false })
+  if (!context) throw new Error("가림 편집본을 만들 수 없어요.")
+  context.drawImage(image, 0, 0)
+
+  for (const mask of masks) {
+    const box = maskGeometryToPixels(mask, canvas.width, canvas.height)
+    const centerX = box.x + box.width / 2
+    const centerY = box.y + box.height / 2
+    context.save()
+    context.translate(centerX, centerY)
+    context.rotate(box.rotation * Math.PI / 180)
+    context.beginPath()
+    context.ellipse(0, 0, box.width / 2, box.height / 2, 0, 0, Math.PI * 2)
+    context.clip()
+
+    if (mask.style === "blur") {
+      context.rotate(-box.rotation * Math.PI / 180)
+      context.translate(-centerX, -centerY)
+      const mosaic = document.createElement("canvas")
+      mosaic.width = Math.max(2, Math.round(box.width / 18))
+      mosaic.height = Math.max(2, Math.round(box.height / 18))
+      const mosaicContext = mosaic.getContext("2d", { alpha: false })
+      if (mosaicContext) {
+        mosaicContext.drawImage(image, box.x, box.y, box.width, box.height, 0, 0, mosaic.width, mosaic.height)
+        context.imageSmoothingEnabled = false
+        context.drawImage(mosaic, 0, 0, mosaic.width, mosaic.height, box.x, box.y, box.width, box.height)
+        context.imageSmoothingEnabled = true
+      } else {
+        context.fillStyle = "#6F6A63"
+        context.fillRect(box.x, box.y, box.width, box.height)
+      }
+    } else if (mask.style === "white") {
+      context.fillStyle = "#FFFFFF"
+      context.fillRect(-box.width / 2, -box.height / 2, box.width, box.height)
+    } else {
+      context.fillStyle = "#F0D7B5"
+      context.fillRect(-box.width / 2, -box.height / 2, box.width, box.height)
+      context.strokeStyle = "#2B2B2B"
+      context.lineWidth = Math.max(2, box.width * 0.025)
+      context.beginPath()
+      context.moveTo(-box.width * 0.22, box.height * 0.05)
+      context.quadraticCurveTo(0, -box.height * 0.28, box.width * 0.22, box.height * 0.05)
+      context.stroke()
+    }
+    context.restore()
+  }
+
+  if ("close" in image && typeof image.close === "function") image.close()
+  return canvasBlob(canvas)
 }
