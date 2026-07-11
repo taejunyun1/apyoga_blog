@@ -1,0 +1,67 @@
+<script setup lang="ts">
+import { ref } from "vue"
+import type { ChannelResult, InstagramOutput, NaverOutput, ReviewOutput } from "@/domain/studio"
+import ChannelTabs from "./ChannelTabs.vue"
+import CopyActionGroup from "./CopyActionGroup.vue"
+import PublishChecklist from "./PublishChecklist.vue"
+import RewriteActionSheet from "./RewriteActionSheet.vue"
+
+defineProps<{
+  naver: ChannelResult<NaverOutput>
+  instagram: ChannelResult<InstagramOutput>
+  review: ReviewOutput
+  copyFallback: string | null
+}>()
+const emit = defineEmits<{
+  "retry-channel": [channel: "naver" | "instagram"]
+  rewrite: [request: { channel: "naver" | "instagram"; section: string; instruction: string }]
+  copy: [request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }]
+  "select-option": [request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }]
+  finalize: []
+}>()
+const active = ref<"naver" | "instagram">("naver")
+const selectedNaverTitle = ref(0)
+const selectedNaverIntro = ref(0)
+const selectedInstagramHook = ref(0)
+</script>
+
+<template>
+  <section class="result-editor">
+    <header class="section-heading-row"><div><h2 class="screen-heading">결과 확인 및 편집</h2><p>로컬 데모 AI가 만든 초안입니다. 게시 전에 내용을 직접 확인해 주세요.</p></div></header>
+    <ChannelTabs v-model="active" />
+
+    <div v-if="active === 'naver'" role="tabpanel" class="channel-panel">
+      <template v-if="naver.status === 'success' && naver.data">
+        <p class="channel-ready">네이버 글이 준비됐어요</p>
+        <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input v-model="selectedNaverTitle" type="radio" name="naver-title" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
+        <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input v-model="selectedNaverIntro" type="radio" name="naver-intro" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
+        <label class="field-label">본문 편집<textarea v-model="naver.data.body" rows="12" /></label>
+        <ul v-if="naver.data.imagePlacements.length" class="placement-list"><li v-for="placement in naver.data.imagePlacements" :key="placement.imageId">문단 {{ placement.afterParagraph }} 뒤 · {{ placement.caption }}</li></ul>
+        <p class="class-info">{{ naver.data.classInfo }}</p>
+        <p class="hashtag-line">{{ naver.data.hashtags.join(' ') }}</p>
+        <RewriteActionSheet channel="naver" @rewrite="emit('rewrite', $event)" />
+        <PublishChecklist :review="review" />
+        <CopyActionGroup channel="naver" :fallback="copyFallback" @copy="emit('copy', { channel: 'naver', part: $event })" />
+      </template>
+      <div v-else-if="naver.status === 'error'" class="channel-error"><p>{{ naver.error }}</p><button type="button" @click="emit('retry-channel', 'naver')">네이버만 다시 생성</button></div>
+      <p v-else class="empty-row">네이버 글을 생성하고 있어요.</p>
+    </div>
+
+    <div v-else role="tabpanel" class="channel-panel">
+      <template v-if="instagram.status === 'success' && instagram.data">
+        <p class="channel-ready">인스타그램 글이 준비됐어요</p>
+        <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input v-model="selectedInstagramHook" type="radio" name="instagram-hook" :value="index" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
+        <label class="field-label">기본형 캡션<textarea v-model="instagram.data.captionLong" rows="9" /></label>
+        <label class="field-label">짧은 캡션<textarea v-model="instagram.data.captionShort" rows="3" /></label>
+        <p class="hashtag-line">{{ instagram.data.hashtags.join(' ') }}</p>
+        <RewriteActionSheet channel="instagram" @rewrite="emit('rewrite', $event)" />
+        <PublishChecklist :review="review" />
+        <CopyActionGroup channel="instagram" :fallback="copyFallback" @copy="emit('copy', { channel: 'instagram', part: $event })" />
+      </template>
+      <div v-else-if="instagram.status === 'error'" class="channel-error"><p>{{ instagram.error }}</p><button type="button" @click="emit('retry-channel', 'instagram')">인스타그램만 다시 생성</button></div>
+      <p v-else class="empty-row">인스타그램 글을 생성하고 있어요.</p>
+    </div>
+
+    <button class="secondary-action" type="button" @click="emit('finalize')">작성 이력에 저장</button>
+  </section>
+</template>

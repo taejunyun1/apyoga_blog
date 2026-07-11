@@ -136,4 +136,80 @@ describe("studio workflow store", () => {
     expect(store.draft.step).toBe("organize")
     expect(repository.images.get(store.draft.images[0].editedBlobId)).toBe(maskedBlob)
   })
+
+  it("analyzes prepared images once and moves to brief review", async () => {
+    const repository = new InMemoryRepository()
+    const ai = new LocalAIProvider()
+    const analyzeSpy = vi.spyOn(ai, "analyzeImages")
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), brief: null, briefConfirmed: false, step: "memo" }
+
+    await store.analyze()
+    await store.analyze()
+
+    expect(analyzeSpy).toHaveBeenCalledTimes(1)
+    expect(store.draft.brief?.bodyFocus).toEqual(["어깨", "흉곽"])
+    expect(store.draft.step).toBe("brief")
+  })
+
+  it("retries only the failed channel", async () => {
+    const repository = new InMemoryRepository()
+    const ai = new LocalAIProvider()
+    const instagramSpy = vi.spyOn(ai, "generateInstagram")
+    const naverSpy = vi.spyOn(ai, "generateNaver")
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    instagramSpy.mockClear()
+    naverSpy.mockClear()
+    store.draft.instagram = { status: "error", data: null, error: "failed" }
+
+    await store.retryChannel("instagram")
+
+    expect(instagramSpy).toHaveBeenCalledTimes(1)
+    expect(naverSpy).not.toHaveBeenCalled()
+    expect(store.draft.instagram.status).toBe("success")
+  })
+
+  it("returns selectable fallback text when clipboard permission is denied", async () => {
+    configureStudioServices({
+      repository: new InMemoryRepository(),
+      clipboard: { copy: vi.fn().mockResolvedValue({ ok: false, error: "denied" }) }
+    })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const result = await store.copy({ channel: "naver", part: "all" })
+
+    expect(result.ok).toBe(false)
+    expect(result.fallback).toContain("호흡")
+  })
+
+  it("stores finalized text history without requiring image retention", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    await store.finalize("2026-07-11T02:00:00.000Z")
+
+    expect(store.draft.finalizedAt).toBe("2026-07-11T02:00:00.000Z")
+    expect(repository.history.has(store.draft.id)).toBe(true)
+  })
+
+  it("moves the chosen channel option to the copy position", async () => {
+    configureStudioServices({ repository: new InMemoryRepository() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const chosen = store.draft.naver.data?.titles[1]
+
+    await store.selectOption({ channel: "naver", kind: "title", index: 1 })
+
+    expect(store.draft.naver.data?.titles[0]).toBe(chosen)
+  })
 })

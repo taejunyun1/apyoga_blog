@@ -25,7 +25,7 @@ export interface StudioRepository {
 export interface StudioServices {
   repository: StudioRepository
   ai: AIProvider
-  clipboard: BrowserClipboard
+  clipboard: { copy(text: string): Promise<{ ok: boolean; error?: string }> }
   prepareImage: typeof prepareImage
   applyMasks: typeof applyMasksToBlob
   faceDetector: { detect(source: HTMLImageElement): Promise<DetectedFace[]>; lastDiagnostic: string | null }
@@ -234,6 +234,52 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
+  function updateMemo(value: { memo: string; mustInclude: string; avoid: string; writingMode: StudioDraft["writingMode"]; naverTone: StudioDraft["naverTone"]; instagramTone: StudioDraft["instagramTone"] }) {
+    if (!draft.value) return
+    draft.value.sourceMemo = value.memo
+    draft.value.mustInclude = value.mustInclude
+    draft.value.avoid = value.avoid
+    draft.value.writingMode = value.writingMode
+    draft.value.naverTone = value.naverTone
+    draft.value.instagramTone = value.instagramTone
+    draft.value.brief = null
+    draft.value.briefConfirmed = false
+  }
+
+  async function analyze() {
+    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
+    if (!draft.value.sourceMemo.trim()) throw new Error("오늘의 수련 메모를 입력해 주세요.")
+    if (draft.value.brief) {
+      draft.value.step = "brief"
+      return draft.value.brief
+    }
+    const current = draft.value
+    current.brief = await services.ai.analyzeImages({
+      memo: current.sourceMemo,
+      mustInclude: current.mustInclude,
+      avoid: current.avoid,
+      writingMode: current.writingMode,
+      naverTone: current.naverTone,
+      instagramTone: current.instagramTone,
+      images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder }))
+    })
+    current.briefConfirmed = false
+    current.step = "brief"
+    current.updatedAt = new Date().toISOString()
+    await saveNow()
+    return current.brief
+  }
+
+  function updateBrief(value: NonNullable<StudioDraft["brief"]>) {
+    if (!draft.value) return
+    draft.value.brief = JSON.parse(JSON.stringify(value)) as NonNullable<StudioDraft["brief"]>
+    draft.value.briefConfirmed = false
+  }
+
+  function confirmBrief() {
+    if (draft.value?.brief) draft.value.briefConfirmed = true
+  }
+
   function reorder(from: number, to: number) {
     if (draft.value) draft.value.images = reorderImages(draft.value.images, from, to)
   }
@@ -292,6 +338,22 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
+  async function retryChannel(channel: "naver" | "instagram") {
+    if (!draft.value?.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
+    const current = draft.value
+    const input = channelInput(current)
+    if (channel === "naver") current.naver = { status: "loading", data: current.naver.data, error: null }
+    else current.instagram = { status: "loading", data: current.instagram.data, error: null }
+    try {
+      if (channel === "naver") current.naver = { status: "success", data: await services.ai.generateNaver(input), error: null }
+      else current.instagram = { status: "success", data: await services.ai.generateInstagram(input), error: null }
+    } catch (error) {
+      if (channel === "naver") current.naver = { status: "error", data: current.naver.data, error: errorMessage(error) }
+      else current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(error) }
+    }
+    await saveNow()
+  }
+
   async function rewrite(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
     if (!draft.value) throw new Error("작성 중인 글이 없어요.")
     const currentText = sectionText(draft.value, request.channel, request.section)
@@ -322,15 +384,86 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
+  async function copy(request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }) {
+    if (!draft.value) throw new Error("복사할 글이 없어요.")
+    const text = copyText(draft.value, request.channel, request.part)
+    const result = await services.clipboard.copy(text)
+    return { ...result, fallback: result.ok ? null : text }
+  }
+
+  async function selectOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
+    if (!draft.value) return
+    let options: string[] | undefined
+    if (request.channel === "naver" && request.kind === "title") options = draft.value.naver.data?.titles
+    else if (request.channel === "naver" && request.kind === "intro") options = draft.value.naver.data?.introOptions
+    else if (request.channel === "instagram" && request.kind === "hook") options = draft.value.instagram.data?.hookOptions
+    if (!options?.[request.index]) return
+    const [selected] = options.splice(request.index, 1)
+    options.unshift(selected)
+    await saveNow()
+  }
+
+  async function finalize(now = new Date().toISOString()) {
+    if (!draft.value) throw new Error("완료할 글이 없어요.")
+    draft.value.finalizedAt = now
+    draft.value.updatedAt = now
+    draft.value.title = draft.value.naver.data?.titles[0] ?? draft.value.instagram.data?.hookOptions[0] ?? "완료한 콘텐츠"
+    await services.repository.finalize(draft.value)
+    await saveNow()
+    history.value = await services.repository.listHistory()
+  }
+
+  async function discard() {
+    if (!draft.value) return
+    await services.repository.deleteDraft(draft.value.id)
+    draft.value = null
+  }
+
   return {
     draft, drafts, history, saveStatus, lastSavedAt, busy, faceDetectionMessage,
     create, loadHome, load, saveNow, addFiles, beginMasking, retryImage, updateMasks, confirmMasks,
-    reorder, chooseCover, removeImage, generateAll, rewrite
+    reorder, chooseCover, removeImage, updateMemo, analyze, updateBrief, confirmBrief,
+    generateAll, retryChannel, rewrite, selectOption, copy, finalize, discard
   }
 })
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "생성 중 알 수 없는 오류가 발생했어요."
+}
+
+function channelInput(current: StudioDraft) {
+  if (!current.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
+  return {
+    memo: current.sourceMemo,
+    mustInclude: current.mustInclude,
+    avoid: current.avoid,
+    writingMode: current.writingMode,
+    naverTone: current.naverTone,
+    instagramTone: current.instagramTone,
+    images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder })),
+    brief: current.brief
+  }
+}
+
+function copyText(draft: StudioDraft, channel: "naver" | "instagram", part: "title" | "body" | "hashtags" | "all"): string {
+  if (channel === "naver") {
+    const output = draft.naver.data
+    if (!output) throw new Error("네이버 결과가 없어요.")
+    const title = output.titles[0] ?? ""
+    const hashtags = output.hashtags.join(" ")
+    if (part === "title") return title
+    if (part === "body") return output.body
+    if (part === "hashtags") return hashtags
+    return [title, output.body, hashtags].filter(Boolean).join("\n\n")
+  }
+  const output = draft.instagram.data
+  if (!output) throw new Error("인스타그램 결과가 없어요.")
+  const hook = output.hookOptions[0] ?? ""
+  const hashtags = output.hashtags.join(" ")
+  if (part === "title") return hook
+  if (part === "body") return output.captionLong
+  if (part === "hashtags") return hashtags
+  return [hook, output.captionLong, hashtags].filter(Boolean).join("\n\n")
 }
 
 function sectionText(draft: StudioDraft, channel: "naver" | "instagram", section: string): string {

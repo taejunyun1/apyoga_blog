@@ -2,11 +2,15 @@
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import BottomActionBar from "@/features/studio/BottomActionBar.vue"
+import ContentBriefReview from "@/features/studio/ContentBriefReview.vue"
 import ErrorBanner from "@/features/studio/ErrorBanner.vue"
 import FaceMaskEditor from "@/features/studio/FaceMaskEditor.vue"
+import GenerationProgress from "@/features/studio/GenerationProgress.vue"
+import MemoToneForm from "@/features/studio/MemoToneForm.vue"
 import PhotoOrganizer from "@/features/studio/PhotoOrganizer.vue"
 import PhotoUploader from "@/features/studio/PhotoUploader.vue"
 import ProgressStepper from "@/features/studio/ProgressStepper.vue"
+import ResultEditor from "@/features/studio/ResultEditor.vue"
 import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
 import type { FaceMask } from "@/domain/studio"
@@ -16,6 +20,7 @@ const router = useRouter()
 const store = useStudioStore()
 const error = ref<string | null>(null)
 const activeMaskIndex = ref(0)
+const copyFallback = ref<string | null>(null)
 const stopAutosave = useAutosave(store)
 
 const readyImages = computed(() => store.draft?.images.filter((image) => image.status === "ready") ?? [])
@@ -52,6 +57,26 @@ async function finishCurrentStep() {
     store.draft.step = "memo"
     await run(() => store.saveNow())
   }
+}
+
+async function submitMemo(value: Parameters<typeof store.updateMemo>[0]) {
+  store.updateMemo(value)
+  await run(() => store.analyze())
+}
+
+async function generateChannels() {
+  await run(() => store.generateAll())
+}
+
+async function retryChannel(channel: "naver" | "instagram") {
+  await run(() => store.retryChannel(channel))
+}
+
+async function copyResult(request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }) {
+  await run(async () => {
+    const result = await store.copy(request)
+    copyFallback.value = result.fallback
+  })
 }
 </script>
 
@@ -90,6 +115,42 @@ async function finishCurrentStep() {
         @reorder="store.reorder"
         @set-cover="store.chooseCover"
         @remove-image="run(() => store.removeImage($event))"
+      />
+
+      <MemoToneForm
+        v-else-if="store.draft.step === 'memo'"
+        :memo="store.draft.sourceMemo"
+        :must-include="store.draft.mustInclude"
+        :avoid="store.draft.avoid"
+        :writing-mode="store.draft.writingMode"
+        :naver-tone="store.draft.naverTone"
+        :instagram-tone="store.draft.instagramTone"
+        @submit="submitMemo"
+      />
+
+      <ContentBriefReview
+        v-else-if="store.draft.step === 'brief' && store.draft.brief"
+        :brief="store.draft.brief"
+        :confirmed="store.draft.briefConfirmed"
+        :busy="store.busy"
+        @update:brief="store.updateBrief"
+        @confirm="store.confirmBrief"
+        @generate="generateChannels"
+      />
+
+      <GenerationProgress v-else-if="store.draft.step === 'generating'" />
+
+      <ResultEditor
+        v-else-if="store.draft.step === 'results' && store.draft.review"
+        :naver="store.draft.naver"
+        :instagram="store.draft.instagram"
+        :review="store.draft.review"
+        :copy-fallback="copyFallback"
+        @retry-channel="retryChannel"
+        @rewrite="run(() => store.rewrite($event))"
+        @select-option="run(() => store.selectOption($event))"
+        @copy="copyResult"
+        @finalize="run(() => store.finalize())"
       />
 
       <section v-else class="empty-row">다음 콘텐츠 단계가 준비되었습니다.</section>

@@ -455,7 +455,7 @@ git commit -m "feat: add private photo preparation flow"
 - Consumes: store actions `updateMemo`, `analyze`, `generateAll`, `retryChannel`, `rewrite`, `copy`, and `finalize`.
 - Produces: a complete post-generation flow and finalized local history entry.
 
-- [ ] **Step 1: Write failing content tests**
+- [x] **Step 1: Write failing content tests**
 
 ```ts
 it("requires a confirmed brief before generation", async () => {
@@ -475,31 +475,31 @@ it("keeps Naver visible when Instagram fails and retries only Instagram", async 
 })
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run test:run -- tests/component/content-brief-review.test.ts tests/component/results.test.ts`
 
 Expected: FAIL because the components do not exist.
 
-- [ ] **Step 3: Implement memo and brief confirmation**
+- [x] **Step 3: Implement memo and brief confirmation**
 
 Provide the seven writing modes and three tones from the source documents, with defaults `자동 추천 + 담백하게` for Naver and `자동 추천 + 조금 감성적으로` for Instagram. Brief fields are editable; body focus and visual keywords support add and delete. Generation remains disabled until explicit confirmation.
 
-- [ ] **Step 4: Implement dual generation and result editing**
+- [x] **Step 4: Implement dual generation and result editing**
 
 Show the five progress labels from the UX document, channel-specific loading/error/success surfaces, Naver title and intro selectors, Instagram hook selector, editable body/captions, and per-channel hashtags. Provide rewrite actions for Naver title, intro, ending, paragraph, Instagram hook, long, short, and hashtags plus quick instructions `감성 줄이기`, `철학 줄이기`, `사진 설명 늘리기`, and `최근 글과 다르게`.
 
-- [ ] **Step 5: Implement review and copy fallbacks**
+- [x] **Step 5: Implement review and copy fallbacks**
 
 Review must display face-mask confirmation, medical-claim rule, repetition, the exact warning `예약 정보는 운영 연동 전 확인 필요`, and photo order. Copy actions are separated into title, body/caption, hashtags, and whole output. When clipboard fails, open a labeled readonly textarea with selected text and the instruction `길게 눌러 복사해 주세요`.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/component/content-brief-review.test.ts tests/component/results.test.ts`
 
 Expected: PASS; tests prove independent channel retry, selected-section rewrite, and clipboard fallback.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/features/studio src/views/StudioView.vue tests/component
