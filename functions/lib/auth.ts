@@ -45,8 +45,10 @@ export async function createSession(username: string, secret: string, nowSeconds
 }
 
 export async function verifySession(token: string, username: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): Promise<boolean> {
-  const [payload, signature, extra] = token.split(".")
-  if (!payload || !signature || extra) return false
+  const parts = token.split(".")
+  if (parts.length !== 2) return false
+  const [payload, signature] = parts
+  if (!payload || !signature) return false
   try {
     if (!equal(decode(signature), await hmac(payload, secret))) return false
     const value = JSON.parse(new TextDecoder().decode(decode(payload))) as { v?: number; sub?: string; iat?: number; exp?: number }

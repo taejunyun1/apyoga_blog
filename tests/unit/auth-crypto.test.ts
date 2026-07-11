@@ -28,6 +28,7 @@ describe("authentication cryptography", () => {
     const secret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     const token = await createSession("studio-user", secret, 1_800_000_000)
     expect(await verifySession(`${token}x`, "studio-user", secret, 1_800_000_001)).toBe(false)
+    expect(await verifySession(`${token}.`, "studio-user", secret, 1_800_000_001)).toBe(false)
     expect(await verifySession(token, "other-user", secret, 1_800_000_001)).toBe(false)
   })
 })
