@@ -4,6 +4,8 @@
 
 네 문서를 기준으로 한 로컬 기능형 MVP가 완성되었습니다. Vue 3 PWA에서 사진 선택 → 브라우저 내 얼굴 가림 → 사진 구성 → 수련 메모 → 공통 브리프 확인 → 네이버/인스타그램 독립 생성 → 부분 재작성·복사 → 자동 저장·복원의 전체 흐름이 동작합니다.
 
+Cloudflare Pages 프로덕션: [https://ap-yoga-content-studio.pages.dev/](https://ap-yoga-content-studio.pages.dev/)
+
 ## 실행
 
 프로젝트 루트에서 Node.js 22.12 이상을 사용합니다.

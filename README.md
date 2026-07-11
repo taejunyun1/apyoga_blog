@@ -62,6 +62,31 @@ E2E는 Chromium의 `390×844` 모바일 뷰포트와 `1280×900` 데스크톱 �
 
 자동 게시, 실제 로그인, Cloudflare Access, D1/R2 서버 저장, 실제 OpenAI 호출, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
 
+## Cloudflare Pages 배포
+
+프로덕션 URL: [https://ap-yoga-content-studio.pages.dev/](https://ap-yoga-content-studio.pages.dev/)
+
+이 프로젝트는 Cloudflare Pages Direct Upload 방식입니다. `wrangler.jsonc`의 프로젝트명과 `dist` 출력 경로를 사용하며, 아래 명령은 빌드를 먼저 실행한 뒤 `master` 프로덕션 브랜치로 업로드합니다.
+
+```bash
+npm run deploy:cloudflare
+```
+
+배포 전 확인:
+
+```bash
+npx wrangler whoami
+npx wrangler pages project list
+```
+
+배포 이력 확인:
+
+```bash
+npx wrangler pages deployment list --project-name ap-yoga-content-studio
+```
+
+Direct Upload 프로젝트는 같은 프로젝트에서 Git integration 방식으로 전환할 수 없습니다. 향후 GitHub 자동 배포가 필요하면 Git 연동용 Pages 프로젝트를 새로 만드는 편이 안전합니다. API 키는 `wrangler secret put`으로 입력하고 `.dev.vars`나 비밀 값을 Git에 커밋하지 마세요.
+
 ## 운영형 전환 로드맵
 
 현재 UI와 Pinia 스토어는 포트/어댑터 경계를 사용합니다. 다음 단계에서는 화면 계약을 유지하며 아래 어댑터를 추가합니다.
