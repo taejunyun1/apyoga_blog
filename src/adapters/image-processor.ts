@@ -1,4 +1,3 @@
-import imageCompression from "browser-image-compression"
 import { expiresAtFor } from "@/domain/rules"
 import type { FaceMask } from "@/domain/studio"
 
@@ -63,10 +62,19 @@ async function toBrowserImage(blob: Blob): Promise<ImageBitmap | HTMLImageElemen
   }
 }
 
-function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasBlob(canvas: HTMLCanvasElement, quality = 0.84): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("편집 이미지를 만들지 못했어요.")), "image/jpeg", 0.84)
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("편집 이미지를 만들지 못했어요.")), "image/jpeg", quality)
   })
+}
+
+async function compressedCanvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  const maxBytes = 2 * 1024 * 1024
+  for (const quality of [0.84, 0.72, 0.6, 0.48]) {
+    const blob = await canvasBlob(canvas, quality)
+    if (blob.size <= maxBytes || quality === 0.48) return blob
+  }
+  throw new Error("편집 이미지를 압축하지 못했어요.")
 }
 
 async function sha256(blob: Blob): Promise<string> {
@@ -79,15 +87,7 @@ export async function prepareImage(file: File, now = new Date().toISOString()): 
     ? await import("heic2any").then(({ default: convertHeic }) => convertHeic({ blob: file, toType: "image/jpeg", quality: 0.9 }))
     : file
   const source = Array.isArray(converted) ? converted[0] : converted
-  const compressed = await imageCompression(new File([source], `${file.name}.jpg`, { type: "image/jpeg" }), {
-    maxWidthOrHeight: 1280,
-    maxSizeMB: 2,
-    useWebWorker: true,
-    preserveExif: false,
-    fileType: "image/jpeg",
-    initialQuality: 0.84
-  })
-  const image = await toBrowserImage(compressed)
+  const image = await toBrowserImage(source)
   const size = containSize(image.width, image.height, 1280)
   const canvas = document.createElement("canvas")
   canvas.width = size.width
@@ -96,14 +96,17 @@ export async function prepareImage(file: File, now = new Date().toISOString()): 
   if (!context) throw new Error("이 브라우저에서 이미지를 편집할 수 없어요.")
   context.drawImage(image, 0, 0, size.width, size.height)
   if ("close" in image && typeof image.close === "function") image.close()
-  const blob = await canvasBlob(canvas)
+  // Re-encoding pixels to JPEG drops source metadata (including EXIF) and keeps
+  // all photo preparation inside the browser with no worker CDN dependency.
+  const blob = await compressedCanvasBlob(canvas)
+  const hash = await sha256(blob)
 
   return {
     blob,
     thumbnailUrl: URL.createObjectURL(blob),
     width: size.width,
     height: size.height,
-    hash: await sha256(blob),
+    hash,
     createdAt: now,
     expiresAt: expiresAtFor(now)
   }

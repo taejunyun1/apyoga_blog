@@ -21,6 +21,7 @@ const store = useStudioStore()
 const error = ref<string | null>(null)
 const activeMaskIndex = ref(0)
 const copyFallback = ref<string | null>(null)
+const copyStatus = ref<string | null>(null)
 const stopAutosave = useAutosave(store)
 
 const readyImages = computed(() => store.draft?.images.filter((image) => image.status === "ready") ?? [])
@@ -76,6 +77,7 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
   await run(async () => {
     const result = await store.copy(request)
     copyFallback.value = result.fallback
+    copyStatus.value = result.fallback ? "직접 복사할 글을 열었어요" : "클립보드에 복사했어요"
   })
 }
 </script>
@@ -86,7 +88,12 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
       <button type="button" class="icon-button" aria-label="홈으로 돌아가기" @click="router.push('/')">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" /></svg>
       </button>
-      <div><strong>새 콘텐츠 만들기</strong><small>{{ store.saveStatus === 'error' ? '저장 실패' : '임시 저장됨' }}</small></div>
+      <div>
+        <strong>새 콘텐츠 만들기</strong>
+        <small role="status" aria-live="polite">
+          {{ store.saveStatus === 'error' ? '저장 실패' : store.saveStatus === 'restored' ? '작성 중인 글을 복원했어요' : store.saveStatus === 'saving' ? '저장 중…' : '임시 저장됨' }}
+        </small>
+      </div>
       <img src="/app-icon.svg" alt="" />
     </header>
 
@@ -146,6 +153,7 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
         :instagram="store.draft.instagram"
         :review="store.draft.review"
         :copy-fallback="copyFallback"
+        :copy-status="copyStatus"
         @retry-channel="retryChannel"
         @rewrite="run(() => store.rewrite($event))"
         @select-option="run(() => store.selectOption($event))"

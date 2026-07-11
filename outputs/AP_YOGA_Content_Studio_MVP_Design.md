@@ -150,7 +150,7 @@ Local Adapters (MVP)
 
 화면 컴포넌트는 외부 API나 브라우저 저장소를 직접 호출하지 않는다. Store가 Use Case를 호출하고, Use Case가 타입으로 정의된 포트를 사용한다. 이후 `OpenAIProvider`, `D1DraftRepository`, `R2ImageRepository`를 추가해도 화면 계약은 유지한다.
 
-구현 기술은 Vue 3, Vite, TypeScript, Pinia, Vue Router, VueUse, Dexie, Konva와 `vue-konva`, `browser-image-compression`, `heic2any`, MediaPipe Tasks Vision, `vite-plugin-pwa`, Vitest, Vue Test Utils, Playwright로 고정한다. 외부 디자인 패키지는 설치하지 않고 실제 Astryx 토큰이 제공될 때 교체 가능한 로컬 토큰을 사용한다.
+구현 기술은 Vue 3, Vite, TypeScript, Pinia, Vue Router, VueUse, Dexie, Konva와 `vue-konva`, 브라우저 Canvas JPEG 재인코딩, `heic2any`, MediaPipe Tasks Vision, `vite-plugin-pwa`, Vitest, Vue Test Utils, Playwright로 고정한다. 이미지 압축은 외부 worker CDN에 의존하지 않도록 Canvas에서 품질을 단계적으로 낮추는 로컬 경로를 사용한다. 외부 디자인 패키지는 설치하지 않고 실제 Astryx 토큰이 제공될 때 교체 가능한 로컬 토큰을 사용한다.
 
 ## 8. 주요 도메인 계약
 

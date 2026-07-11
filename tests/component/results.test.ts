@@ -49,4 +49,10 @@ describe("ResultEditor", () => {
     expect(screen.getByText("길게 눌러 복사해 주세요")).toBeTruthy()
     expect((screen.getByLabelText("직접 복사할 글") as HTMLTextAreaElement).value).toBe("복사할 전체 글")
   })
+
+  it("announces a successful copy to assistive technology", () => {
+    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, copyStatus: "클립보드에 복사했어요" } })
+
+    expect(screen.getByRole("status").textContent).toContain("클립보드에 복사했어요")
+  })
 })

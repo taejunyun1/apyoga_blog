@@ -269,7 +269,7 @@ select:focus-visible {
 
 .studio-header {
   display: grid;
-  grid-template-columns: 44px 44px 1fr 44px;
+  grid-template-columns: 44px 1fr 44px;
   width: min(100%, var(--ap-content));
   min-height: 68px;
   margin: 0 auto;
@@ -748,7 +748,8 @@ select:focus-visible {
 }
 
 .confirmation-note,
-.channel-ready {
+.channel-ready,
+.copy-status {
   margin: 0;
   color: var(--ap-success);
   font-size: 0.85rem;

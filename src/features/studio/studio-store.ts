@@ -129,9 +129,11 @@ export const useStudioStore = defineStore("studio", () => {
     await Promise.all(newImages.map(async (image) => {
       const file = transientFiles.get(image.id)
       if (!file || !draft.value) return
+      const liveImage = draft.value.images.find((item) => item.id === image.id)
+      if (!liveImage) return
       try {
         const prepared = await services.prepareImage(file)
-        Object.assign(image, {
+        Object.assign(liveImage, {
           thumbnailUrl: prepared.thumbnailUrl,
           width: prepared.width,
           height: prepared.height,
@@ -141,16 +143,16 @@ export const useStudioStore = defineStore("studio", () => {
           createdAt: prepared.createdAt,
           expiresAt: prepared.expiresAt
         })
-        if (!draft.value.images.some((item) => item.isCover && item.status === "ready")) image.isCover = true
+        if (!draft.value.images.some((item) => item.isCover && item.status === "ready")) liveImage.isCover = true
         await services.repository.saveDraft(draft.value, [{
-          id: image.editedBlobId,
+          id: liveImage.editedBlobId,
           draftId: draft.value.id,
           blob: prepared.blob,
           expiresAt: prepared.expiresAt
         }])
       } catch (error) {
-        image.status = "error"
-        image.error = errorMessage(error)
+        liveImage.status = "error"
+        liveImage.error = errorMessage(error)
       }
     }))
     draft.value.updatedAt = new Date().toISOString()

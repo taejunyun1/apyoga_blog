@@ -6,7 +6,7 @@
 
 **Architecture:** Vue views and components call a Pinia studio store; the store orchestrates typed use cases against `AIProvider`, persistence, image, face-detection, and clipboard ports. Local adapters use deterministic text generation and IndexedDB so the complete flow runs without credentials, while the same contracts can later receive OpenAI, D1, and R2 adapters.
 
-**Tech Stack:** Vue 3, Vite, TypeScript, Pinia, Vue Router, VueUse, Dexie, Konva, vue-konva, browser-image-compression, heic2any, MediaPipe Tasks Vision, vite-plugin-pwa, Vitest, Vue Test Utils, Playwright.
+**Tech Stack:** Vue 3, Vite, TypeScript, Pinia, Vue Router, VueUse, Dexie, Konva, vue-konva, browser Canvas JPEG re-encoding, heic2any, MediaPipe Tasks Vision, vite-plugin-pwa, Vitest, Vue Test Utils, Playwright.
 
 ## Global Constraints
 
@@ -525,7 +525,7 @@ git commit -m "feat: complete multichannel content workflow"
 - Consumes: the complete local PWA.
 - Produces: reproducible setup, requirement-to-evidence mapping, browser verification, and user-facing plan/design deliverables.
 
-- [ ] **Step 1: Write the failing end-to-end flow**
+- [x] **Step 1: Write the failing end-to-end flow**
 
 ```ts
 test("creates and restores a two-channel yoga post", async ({ page }) => {
@@ -542,25 +542,25 @@ test("creates and restores a two-channel yoga post", async ({ page }) => {
 })
 ```
 
-- [ ] **Step 2: Run E2E and verify failure**
+- [x] **Step 2: Run E2E and verify failure**
 
 Run: `npm run test:e2e -- tests/e2e/studio-flow.spec.ts`
 
 Expected: FAIL until missing integration seams, fixture helpers, or accessible names are corrected.
 
-- [ ] **Step 3: Fix integration seams and responsive behavior**
+- [x] **Step 3: Fix integration seams and responsive behavior**
 
 Make the E2E flow pass at 390×844 and 1280×900 viewports. Verify safe-area insets, sticky bottom actions, keyboard focus order, no horizontal overflow, visible loading states, reduced motion, and aria-live feedback for save/copy/generation status.
 
-- [ ] **Step 4: Write requirements traceability**
+- [x] **Step 4: Write requirements traceability**
 
 Map every included design requirement to one or more source files and an automated or manual verification command. Explicitly mark live Cloudflare/OpenAI, real Access, Brand Memory, and auto-publishing as excluded rather than implying completion.
 
-- [ ] **Step 5: Write README and final deliverables**
+- [x] **Step 5: Write README and final deliverables**
 
 README must include Node version, `npm install`, `npm run dev`, `npm run test:run`, `npm run test:e2e`, `npm run build`, local data reset instructions, privacy behavior, browser limitations, local-AI labeling, and the Cloudflare/OpenAI adapter roadmap. Copy the approved spec and this plan to `outputs/` with stable names.
 
-- [ ] **Step 6: Run the full completion audit**
+- [x] **Step 6: Run the full completion audit**
 
 Run:
 
@@ -573,7 +573,7 @@ npm run build
 
 Expected: every command exits 0. Inspect `dist/manifest.webmanifest`, confirm the icon path resolves, and use the browser at mobile and desktop widths to complete the core flow once with uploaded fixtures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md docs package.json package-lock.json playwright.config.ts tests/e2e src/app/styles.css outputs

@@ -19,7 +19,6 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
     "@vueuse/core": "^14.3.0",
-    "browser-image-compression": "^2.0.2",
     "dexie": "^4.4.4",
     "heic2any": "^0.0.4",
     "konva": "^10.3.0",
