@@ -1,0 +1,57 @@
+export const SESSION_COOKIE = "ap_yoga_session"
+export const SESSION_SECONDS = 30 * 24 * 60 * 60
+const encoder = new TextEncoder()
+
+function decode(value: string): Uint8Array<ArrayBuffer> {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=")
+  return new Uint8Array(Uint8Array.from(atob(base64), (character) => character.charCodeAt(0)))
+}
+
+function encode(value: Uint8Array): string {
+  return btoa(String.fromCharCode(...value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")
+}
+
+function equal(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false
+  let difference = 0
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index]
+  return difference === 0
+}
+
+export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+  const [algorithm, iterationsText, saltText, hashText] = encoded.split("$")
+  const iterations = Number(iterationsText)
+  if (algorithm !== "pbkdf2-sha256" || iterations !== 600_000 || password.length > 256) return false
+  try {
+    const salt = decode(saltText)
+    const expected = decode(hashText)
+    if (salt.length !== 16 || expected.length !== 32) return false
+    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"])
+    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256)
+    return equal(new Uint8Array(bits), expected)
+  } catch {
+    return false
+  }
+}
+
+async function hmac(payload: string, secret: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", decode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)))
+}
+
+export async function createSession(username: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): Promise<string> {
+  const payload = encode(encoder.encode(JSON.stringify({ v: 1, sub: username, iat: nowSeconds, exp: nowSeconds + SESSION_SECONDS })))
+  return `${payload}.${encode(await hmac(payload, secret))}`
+}
+
+export async function verifySession(token: string, username: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): Promise<boolean> {
+  const [payload, signature, extra] = token.split(".")
+  if (!payload || !signature || extra) return false
+  try {
+    if (!equal(decode(signature), await hmac(payload, secret))) return false
+    const value = JSON.parse(new TextDecoder().decode(decode(payload))) as { v?: number; sub?: string; iat?: number; exp?: number }
+    return value.v === 1 && value.sub === username && Number.isInteger(value.iat) && Number.isInteger(value.exp) && value.iat! <= nowSeconds && value.exp! > nowSeconds && value.exp! - value.iat! === SESSION_SECONDS
+  } catch {
+    return false
+  }
+}
