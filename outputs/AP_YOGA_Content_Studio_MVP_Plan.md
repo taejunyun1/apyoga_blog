@@ -318,7 +318,7 @@ git commit -m "feat: add private image and draft adapters"
 - Consumes: domain factories and all local adapter interfaces.
 - Produces: `useStudioStore()` actions `create`, `load`, `addFiles`, `confirmMasks`, `reorder`, `updateMemo`, `analyze`, `generateAll`, `retryChannel`, `rewrite`, `copy`, `finalize`, and `discard`.
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 ```ts
 it("preserves the successful channel when the other channel fails", async () => {
@@ -335,27 +335,27 @@ it("never analyzes images during a rewrite", async () => {
 })
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run test:run -- tests/unit/studio-store.test.ts tests/component/draft-restore.test.ts`
 
 Expected: FAIL because the store and draft UI are missing.
 
-- [ ] **Step 3: Implement state transitions**
+- [x] **Step 3: Implement state transitions**
 
 Guard each transition: at least one ready image before mask, `maskConfirmedAt` on every image before organize, a nonempty memo before brief analysis, and `briefConfirmed` before generation. Use `Promise.allSettled` for channel generation and store per-channel errors. `rewrite()` replaces only the requested output field.
 
-- [ ] **Step 4: Implement debounced autosave and restore**
+- [x] **Step 4: Implement debounced autosave and restore**
 
 Use VueUse `watchDebounced` with 400ms delay and 1200ms maxWait. Save only serializable draft state; edited blobs are persisted by the image repository. On home load, call expiry cleanup before listing active drafts and finalized history. Show `임시 저장됨`, `저장 실패`, and `복원됨` status messages with timestamps.
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run: `npm run typecheck && npm run test:run -- tests/unit/studio-store.test.ts tests/component/draft-restore.test.ts`
 
 Expected: PASS; fake timers verify the 400ms autosave and failed-channel preservation.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/app src/views src/features tests/unit/studio-store.test.ts tests/component/draft-restore.test.ts

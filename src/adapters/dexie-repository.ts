@@ -45,7 +45,7 @@ export class DexieStudioRepository {
 
   async saveDraft(draft: StudioDraft, images: EditedImageRecord[] = []): Promise<void> {
     await this.db.transaction("rw", this.db.drafts, this.db.images, async () => {
-      await this.db.drafts.put({ id: draft.id, updatedAt: draft.updatedAt, finalizedAt: draft.finalizedAt, value: structuredClone(draft) })
+      await this.db.drafts.put({ id: draft.id, updatedAt: draft.updatedAt, finalizedAt: draft.finalizedAt, value: serializableDraft(draft) })
       if (images.length > 0) await this.db.images.bulkPut(images)
     })
   }
@@ -85,7 +85,7 @@ export class DexieStudioRepository {
 
   async finalize(draft: StudioDraft): Promise<void> {
     if (!draft.finalizedAt) throw new Error("완료 시각이 없는 글은 이력에 저장할 수 없어요.")
-    await this.db.history.put({ id: draft.id, finalizedAt: draft.finalizedAt, value: structuredClone(draft) })
+    await this.db.history.put({ id: draft.id, finalizedAt: draft.finalizedAt, value: serializableDraft(draft) })
   }
 
   async listHistory(): Promise<StudioDraft[]> {
@@ -103,4 +103,8 @@ export class DexieStudioRepository {
     this.db.close()
     await this.db.delete()
   }
+}
+
+function serializableDraft(draft: StudioDraft): StudioDraft {
+  return JSON.parse(JSON.stringify(draft)) as StudioDraft
 }
