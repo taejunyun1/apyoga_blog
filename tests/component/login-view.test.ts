@@ -157,6 +157,7 @@ describe("shared logout", () => {
     expect(wrapper.get("button").attributes("disabled")).toBeDefined()
     expect(wrapper.get("button").text()).toBe("로그아웃 중…")
     expect(cacheKeys).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
 
     request.resolve()
     await flushPromises()
@@ -165,6 +166,56 @@ describe("shared logout", () => {
     expect(deleteCache.mock.calls.map(([name]) => name)).toEqual(["app-shell", "images"])
     expect(deleteDatabase).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/login")
+    expect(deleteCache.mock.invocationCallOrder.at(-1)).toBeLessThan(redirect.mock.invocationCallOrder[0])
+  })
+
+  it.each(["keys", "delete"] as const)("still redirects without reporting server failure when cache %s fails", async (failure) => {
+    const logout = vi.fn().mockResolvedValue(undefined)
+    const cacheKeys = failure === "keys"
+      ? vi.fn().mockRejectedValue(new Error("cache unavailable"))
+      : vi.fn().mockResolvedValue(["app-shell"])
+    const deleteCache = failure === "delete"
+      ? vi.fn().mockRejectedValue(new Error("cache delete failed"))
+      : vi.fn().mockResolvedValue(true)
+    const redirect = vi.fn()
+    vi.stubGlobal("caches", { keys: cacheKeys, delete: deleteCache })
+    const deleteDatabase = vi.spyOn(indexedDB, "deleteDatabase")
+    configureAuthClient(authClient({ logout }))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const wrapper = mount(LogoutButton, { props: { redirect }, global: { plugins: [pinia] } })
+
+    await wrapper.get("button").trigger("click")
+    await flushPromises()
+
+    expect(logout).toHaveBeenCalledOnce()
+    expect(wrapper.emitted("error")).toBeUndefined()
+    expect(deleteDatabase).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/login")
+  })
+
+  it("falls back to router replacement when hard navigation rejects", async () => {
+    configureAuthClient(authClient())
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/private", component: { template: "<p>Private</p>" } },
+        { path: "/login", component: { template: "<p>Login</p>" } }
+      ]
+    })
+    await router.push("/private")
+    await router.isReady()
+    const redirect = vi.fn().mockRejectedValue(new Error("navigation unavailable"))
+    const wrapper = mount(LogoutButton, { props: { redirect }, global: { plugins: [pinia, router] } })
+
+    await wrapper.get("button").trigger("click")
+    await flushPromises()
+
+    expect(redirect).toHaveBeenCalledWith("/login")
+    expect(router.currentRoute.value.fullPath).toBe("/login")
+    expect(wrapper.emitted("error")).toBeUndefined()
   })
 
   it("emits an error without clearing local data when server logout fails", async () => {
