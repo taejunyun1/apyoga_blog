@@ -120,7 +120,7 @@ npm run openai:provision
 npm run deploy:cloudflare
 ```
 
-공유 채팅에 입력했던 OpenAI API key는 배포가 끝난 직후 OpenAI에서 회전하고, 새 키를 위 명령으로 다시 등록하세요. 이전 키는 폐기되었는지 확인하고 키 값을 문서, 셸 기록, `.env` 또는 `.dev.vars`에 남기지 마세요.
+공유 채팅에 입력했던 OpenAI API key를 회전할 때는 기존 키를 먼저 폐기하지 마세요. OpenAI에서 별도의 대체 키를 생성한 다음 그 키를 숨김 프롬프트에 입력해 `npm run openai:provision`을 실행하고, 이어서 반드시 `npm run deploy:cloudflare`로 다시 배포하세요. 프로덕션에서 콘텐츠 생성이 정상 동작하는지 확인한 뒤에만 기존 공유 키를 폐기합니다. 키 값을 문서, 셸 기록, `.env` 또는 `.dev.vars`에 남기지 마세요.
 
 ## 운영형 전환 로드맵
 
