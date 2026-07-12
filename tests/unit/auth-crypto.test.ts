@@ -16,15 +16,11 @@ describe("authentication cryptography", () => {
     expect(await verifyPassword("wrong-password", encoded)).toBe(false)
   })
 
-  it("uses the Cloudflare-compatible object form for the PBKDF2 hash", async () => {
+  it("does not depend on the unavailable Pages WebCrypto PBKDF2 path", async () => {
     const encoded = await testRecord("test-password")
-    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle)
-    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, key, length) => {
-      if (typeof (algorithm as Pbkdf2Params).hash === "string") {
-        throw new DOMException("String hash identifiers are not supported", "NotSupportedError")
-      }
-      return deriveBits(algorithm, key, length)
-    })
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockRejectedValue(
+      new DOMException("PBKDF2 is unavailable in Pages WebCrypto", "NotSupportedError"),
+    )
 
     try {
       await expect(verifyPassword("test-password", encoded)).resolves.toBe(true)

@@ -1,6 +1,17 @@
+import { pbkdf2 } from "node:crypto"
+
 export const SESSION_COOKIE = "ap_yoga_session"
 export const SESSION_SECONDS = 30 * 24 * 60 * 60
 const encoder = new TextEncoder()
+
+function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    pbkdf2(password, salt, iterations, 32, "sha256", (error, derived) => {
+      if (error) reject(error)
+      else resolve(new Uint8Array(derived))
+    })
+  })
+}
 
 function decode(value: string): Uint8Array<ArrayBuffer> {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=")
@@ -26,9 +37,7 @@ export async function verifyPassword(password: string, encoded: string): Promise
     const salt = decode(saltText)
     const expected = decode(hashText)
     if (salt.length !== 16 || expected.length !== 32) return false
-    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"])
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: { name: "SHA-256" }, salt, iterations }, key, 256)
-    return equal(new Uint8Array(bits), expected)
+    return equal(await derivePassword(password, salt, iterations), expected)
   } catch {
     return false
   }

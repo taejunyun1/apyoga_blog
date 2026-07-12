@@ -23,6 +23,7 @@ describe("Cloudflare Pages deployment", () => {
     expect(config.name).toBe("ap-yoga-content-studio")
     expect(config.pages_build_output_dir).toBe("./dist")
     expect(config.compatibility_date).toBe("2026-07-11")
+    expect(config.compatibility_flags).toEqual(["nodejs_compat"])
   })
 
   it("builds before invoking the checked-in Wrangler CLI", () => {
