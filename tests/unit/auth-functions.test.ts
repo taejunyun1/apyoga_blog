@@ -4,8 +4,10 @@ import { handleLogout } from "../../functions/api/auth/logout"
 import { handleSession } from "../../functions/api/auth/session"
 import * as auth from "../../functions/lib/auth"
 import { createSession } from "../../functions/lib/auth"
-import type { AuthEnv, RateLimitKV } from "../../functions/lib/env"
+import { readActiveCredential } from "../../functions/lib/credentials"
+import type { AuthDatabase, AuthEnv, RateLimitKV } from "../../functions/lib/env"
 import { rateLimitKey } from "../../functions/lib/rate-limit"
+import { fakeAuthDatabase } from "./auth-env-fixtures"
 
 const secret = "dGVzdC1zZXNzaW9uLXNlY3JldA"
 const env: AuthEnv = {
@@ -17,6 +19,7 @@ const env: AuthEnv = {
     put: async () => undefined,
     delete: async () => undefined,
   },
+  AUTH_DB: fakeAuthDatabase(),
 }
 
 class MemoryRateLimitKV implements RateLimitKV {
@@ -76,8 +79,23 @@ beforeEach(() => {
     AUTH_PASSWORD_HASH: passwordRecord,
     SESSION_SECRET: loginSecret,
     AUTH_RATE_LIMIT: loginKv,
+    AUTH_DB: fakeAuthDatabase(),
   }
 })
+
+function d1Env(database: AuthDatabase | undefined): AuthEnv {
+  const result: AuthEnv = {
+    AUTH_USERNAME: "studio-user",
+    AUTH_PASSWORD_HASH: "secret-password-record-must-not-be-used",
+    SESSION_SECRET: loginSecret,
+    AUTH_RATE_LIMIT: loginKv,
+    AUTH_DB: database,
+  }
+  Object.defineProperty(result, "AUTH_PASSWORD_HASH", {
+    get: () => { throw new Error("secret password fallback accessed") },
+  })
+  return result
+}
 
 describe("authentication Functions", () => {
   it("uses a stable privacy-preserving rate-limit key instead of the raw address", async () => {
@@ -115,6 +133,18 @@ describe("authentication Functions", () => {
     await handleLogin(loginRequest("wrong-user", "test-password"), loginEnv)
 
     expect(verify).toHaveBeenCalledWith("test-password", passwordRecord)
+  })
+
+  it("verifies login passwords against the active D1 record", async () => {
+    const verifyPasswordSpy = vi.spyOn(auth, "verifyPassword").mockResolvedValue(true)
+    const database = fakeAuthDatabase({
+      row: { password_hash: "d1-password-record", credential_version: "version-2" },
+    })
+
+    const response = await handleLogin(loginRequest("studio-user", "test-password"), d1Env(database))
+
+    expect(response.status).toBe(204)
+    expect(verifyPasswordSpy).toHaveBeenCalledWith("test-password", "d1-password-record")
   })
 
   it("locks the sixth observed failure for ten minutes", async () => {
@@ -184,6 +214,7 @@ describe("authentication Functions", () => {
     "AUTH_PASSWORD_HASH",
     "SESSION_SECRET",
     "AUTH_RATE_LIMIT",
+    "AUTH_DB",
   ] as const)("fails closed when the %s binding is missing", async (binding) => {
     const incompleteEnv = { ...loginEnv, [binding]: undefined } as unknown as AuthEnv
 
@@ -248,7 +279,8 @@ describe("authentication Functions", () => {
   })
 
   it("returns 200 for a valid session cookie", async () => {
-    const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
+    const credential = await readActiveCredential(env)
+    const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)
     const request = new Request("https://studio.example/api/auth/session", {
       headers: { Cookie: `ap_yoga_session=${encodeURIComponent(token)}` },
     })
@@ -257,6 +289,49 @@ describe("authentication Functions", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ authenticated: true })
+  })
+
+  it("accepts only the active D1 credential version for session checks", async () => {
+    const sessionEnv: AuthEnv = {
+      ...env,
+      AUTH_DB: fakeAuthDatabase({
+        row: { password_hash: "d1-password-record", credential_version: "version-2" },
+      }),
+    }
+    const versionedToken = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, "version-2")
+    const staleVersionToken = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, "version-1")
+    const versionedCookieRequest = new Request("https://studio.example/api/auth/session", {
+      headers: { Cookie: `ap_yoga_session=${encodeURIComponent(versionedToken)}` },
+    })
+    const staleVersionCookieRequest = new Request("https://studio.example/api/auth/session", {
+      headers: { Cookie: `ap_yoga_session=${encodeURIComponent(staleVersionToken)}` },
+    })
+
+    expect((await handleSession(versionedCookieRequest, sessionEnv)).status).toBe(200)
+    expect((await handleSession(staleVersionCookieRequest, sessionEnv)).status).toBe(401)
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["invalid", fakeAuthDatabase({ row: { password_hash: "", credential_version: "version-2" } })],
+    ["throwing", fakeAuthDatabase({ readError: new Error("D1 read failed") })],
+  ] as const)("fails closed for login and session when AUTH_DB is %s", async (_label, database) => {
+    vi.spyOn(auth, "verifySession").mockResolvedValue(true)
+    const failedEnv = d1Env(database)
+    const token = "synthetic-session-token"
+    const sessionRequest = new Request("https://studio.example/api/auth/session", {
+      headers: { Cookie: `ap_yoga_session=${token}` },
+    })
+
+    const loginResponse = await handleLogin(loginRequest("studio-user", "test-password"), failedEnv)
+    const sessionResponse = await handleSession(sessionRequest, failedEnv)
+
+    expect(loginResponse.status).toBe(500)
+    await expect(loginResponse.json()).resolves.toEqual({
+      message: "로그인을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    })
+    expect(sessionResponse.status).toBe(401)
+    await expect(sessionResponse.json()).resolves.toEqual({ authenticated: false })
   })
 
   it("logs out a same-origin JSON request with an expired cookie", async () => {

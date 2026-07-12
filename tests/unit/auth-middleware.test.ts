@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 import { protectRequest } from "../../functions/_middleware"
+import * as auth from "../../functions/lib/auth"
 import { createSession } from "../../functions/lib/auth"
-import type { AuthEnv } from "../../functions/lib/env"
+import { readActiveCredential } from "../../functions/lib/credentials"
+import type { AuthDatabase, AuthEnv } from "../../functions/lib/env"
+import { fakeAuthDatabase } from "./auth-env-fixtures"
 
 const env: AuthEnv = {
   AUTH_USERNAME: "studio-user",
@@ -12,6 +15,18 @@ const env: AuthEnv = {
     put: async () => undefined,
     delete: async () => undefined,
   },
+  AUTH_DB: fakeAuthDatabase(),
+}
+
+function d1Env(database: AuthDatabase | undefined): AuthEnv {
+  const result: AuthEnv = {
+    ...env,
+    AUTH_DB: database,
+  }
+  Object.defineProperty(result, "AUTH_PASSWORD_HASH", {
+    get: () => { throw new Error("secret password fallback accessed") },
+  })
+  return result
 }
 
 function staticResponse(): Response {
@@ -78,7 +93,8 @@ describe("Pages authentication middleware", () => {
   })
 
   it("passes a valid signed session to static routing", async () => {
-    const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
+    const credential = await readActiveCredential(env)
+    const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)
     const request = new Request("https://studio.example/", {
       headers: { Cookie: `ap_yoga_session=${token}` },
     })
@@ -90,10 +106,28 @@ describe("Pages authentication middleware", () => {
     expect(next).toHaveBeenCalledOnce()
   })
 
+  it("rejects a signed session bound to a stale D1 credential version", async () => {
+    const sessionEnv: AuthEnv = {
+      ...env,
+      AUTH_DB: fakeAuthDatabase({
+        row: { password_hash: "d1-password-record", credential_version: "version-2" },
+      }),
+    }
+    const staleToken = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, "version-1")
+    const staleVersionRequest = new Request("https://studio.example/api/ai", {
+      headers: { Cookie: `ap_yoga_session=${staleToken}` },
+    })
+    const next = vi.fn(async () => staticResponse())
+
+    expect((await protectRequest(staleVersionRequest, sessionEnv, next)).status).toBe(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+
   it.each(["AUTH_USERNAME", "SESSION_SECRET"] as const)(
     "fails closed when the %s binding is missing",
     async (binding) => {
-      const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
+      const credential = await readActiveCredential(env)
+      const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)
       const incompleteEnv = { ...env, [binding]: undefined } as unknown as AuthEnv
       const request = new Request("https://studio.example/api/ai", {
         headers: { Cookie: `ap_yoga_session=${token}` },
@@ -106,4 +140,30 @@ describe("Pages authentication middleware", () => {
       expect(next).not.toHaveBeenCalled()
     },
   )
+
+  it.each([
+    ["missing", undefined],
+    ["invalid", fakeAuthDatabase({ row: { password_hash: "", credential_version: "version-2" } })],
+    ["throwing", fakeAuthDatabase({ readError: new Error("D1 read failed") })],
+  ] as const)("fails closed for private API and page requests when AUTH_DB is %s", async (_label, database) => {
+    vi.spyOn(auth, "verifySession").mockResolvedValue(true)
+    const failedEnv = d1Env(database)
+    const next = vi.fn(async () => staticResponse())
+    const privateApi = new Request("https://studio.example/api/ai", {
+      headers: { Cookie: "ap_yoga_session=synthetic-session-token" },
+    })
+    const privatePage = new Request("https://studio.example/studio/draft-1", {
+      headers: { Cookie: "ap_yoga_session=synthetic-session-token" },
+    })
+
+    const apiResponse = await protectRequest(privateApi, failedEnv, next)
+    const pageResponse = await protectRequest(privatePage, failedEnv, next)
+
+    expect(apiResponse.status).toBe(401)
+    expect(pageResponse.status).toBe(302)
+    expect(pageResponse.headers.get("Location")).toBe(
+      "https://studio.example/login?next=%2Fstudio%2Fdraft-1",
+    )
+    expect(next).not.toHaveBeenCalled()
+  })
 })

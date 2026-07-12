@@ -43,25 +43,68 @@ export async function verifyPassword(password: string, encoded: string): Promise
   }
 }
 
+export async function createPasswordRecord(password: string): Promise<string> {
+  if (password.length < 12 || password.length > 256) {
+    throw new Error("비밀번호는 12자 이상 256자 이하로 입력해 주세요.")
+  }
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const derived = await derivePassword(password, salt, 100_000)
+  return `pbkdf2-sha256$100000$${encode(salt)}$${encode(derived)}`
+}
+
 async function hmac(payload: string, secret: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey("raw", decode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)))
 }
 
-export async function createSession(username: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): Promise<string> {
-  const payload = encode(encoder.encode(JSON.stringify({ v: 1, sub: username, iat: nowSeconds, exp: nowSeconds + SESSION_SECONDS })))
+export async function createSession(
+  username: string,
+  secret: string,
+  credentialVersion: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<string> {
+  if (!credentialVersion) throw new Error("인증 버전을 확인해 주세요.")
+  const payload = encode(encoder.encode(JSON.stringify({
+    v: 2,
+    sub: username,
+    iat: nowSeconds,
+    exp: nowSeconds + SESSION_SECONDS,
+    cv: credentialVersion,
+  })))
   return `${payload}.${encode(await hmac(payload, secret))}`
 }
 
-export async function verifySession(token: string, username: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): Promise<boolean> {
+export async function verifySession(
+  token: string,
+  username: string,
+  secret: string,
+  expectedVersion: string,
+  allowLegacyV1: boolean,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<boolean> {
+  if (!expectedVersion) return false
   const parts = token.split(".")
   if (parts.length !== 2) return false
   const [payload, signature] = parts
   if (!payload || !signature) return false
   try {
     if (!equal(decode(signature), await hmac(payload, secret))) return false
-    const value = JSON.parse(new TextDecoder().decode(decode(payload))) as { v?: number; sub?: string; iat?: number; exp?: number }
-    return value.v === 1 && value.sub === username && Number.isInteger(value.iat) && Number.isInteger(value.exp) && value.iat! <= nowSeconds && value.exp! > nowSeconds && value.exp! - value.iat! === SESSION_SECONDS
+    const value = JSON.parse(new TextDecoder().decode(decode(payload))) as {
+      v?: number
+      sub?: string
+      iat?: number
+      exp?: number
+      cv?: string
+    }
+    const validClaims = value.sub === username
+      && Number.isInteger(value.iat)
+      && Number.isInteger(value.exp)
+      && value.iat! <= nowSeconds
+      && value.exp! > nowSeconds
+      && value.exp! - value.iat! === SESSION_SECONDS
+    if (!validClaims) return false
+    if (value.v === 2) return value.cv === expectedVersion
+    return value.v === 1 && allowLegacyV1
   } catch {
     return false
   }

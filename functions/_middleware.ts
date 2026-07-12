@@ -1,4 +1,5 @@
 import { verifySession } from "./lib/auth"
+import { readActiveCredential } from "./lib/credentials"
 import type { AuthEnv, PagesHandler } from "./lib/env"
 import { cookieValue, json } from "./lib/http"
 
@@ -13,12 +14,22 @@ export async function protectRequest(
   if (PUBLIC.has(url.pathname)) return next()
 
   const token = cookieValue(request)
-  if (
-    token
-    && env.AUTH_USERNAME
-    && env.SESSION_SECRET
-    && await verifySession(token, env.AUTH_USERNAME, env.SESSION_SECRET)
-  ) {
+  let authenticated = false
+  try {
+    if (env.AUTH_USERNAME && env.SESSION_SECRET) {
+      const credential = await readActiveCredential(env)
+      authenticated = Boolean(token && await verifySession(
+        token,
+        env.AUTH_USERNAME,
+        env.SESSION_SECRET,
+        credential.version,
+        credential.source === "secret",
+      ))
+    }
+  } catch {
+    authenticated = false
+  }
+  if (authenticated) {
     return next()
   }
 

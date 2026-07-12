@@ -1,4 +1,5 @@
 import { createSession, verifyPassword } from "../../lib/auth"
+import { readActiveCredential, type ActiveCredential } from "../../lib/credentials"
 import type { AuthEnv, PagesHandler } from "../../lib/env"
 import { isSameOriginJson, json, sessionCookie } from "../../lib/http"
 import { clearFailures, rateLimitKey, readFailures, recordFailure } from "../../lib/rate-limit"
@@ -11,7 +12,7 @@ export async function handleLogin(
   nowSeconds = Math.floor(Date.now() / 1_000),
 ): Promise<Response> {
   if (!isSameOriginJson(request)) return json({ message: "요청을 확인해 주세요." }, 403)
-  if (!env.AUTH_USERNAME || !env.AUTH_PASSWORD_HASH || !env.SESSION_SECRET || !env.AUTH_RATE_LIMIT) {
+  if (!env.AUTH_USERNAME || !env.SESSION_SECRET || !env.AUTH_RATE_LIMIT) {
     return json({ message: "로그인을 처리하지 못했어요. 잠시 후 다시 시도해 주세요." }, 500)
   }
 
@@ -30,7 +31,13 @@ export async function handleLogin(
   const fields = body as { username?: unknown; password?: unknown }
   const username = typeof fields.username === "string" ? fields.username : ""
   const password = typeof fields.password === "string" ? fields.password : ""
-  const passwordValid = await verifyPassword(password, env.AUTH_PASSWORD_HASH)
+  let credential: ActiveCredential
+  try {
+    credential = await readActiveCredential(env)
+  } catch {
+    return json({ message: "로그인을 처리하지 못했어요. 잠시 후 다시 시도해 주세요." }, 500)
+  }
+  const passwordValid = await verifyPassword(password, credential.passwordHash)
   const valid = username === env.AUTH_USERNAME && passwordValid
   if (!valid) {
     await recordFailure(env, key, failures, nowSeconds)
@@ -38,7 +45,12 @@ export async function handleLogin(
   }
 
   await clearFailures(env, key)
-  const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
+  let token: string
+  try {
+    token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)
+  } catch {
+    return json({ message: "로그인을 처리하지 못했어요. 잠시 후 다시 시도해 주세요." }, 500)
+  }
   return new Response(null, {
     status: 204,
     headers: { "Cache-Control": "no-store", "Set-Cookie": sessionCookie(token) },

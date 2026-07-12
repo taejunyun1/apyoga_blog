@@ -9,6 +9,7 @@ import type {
 } from "../../functions/lib/content-types"
 import type { ContentEnv } from "../../functions/lib/env"
 import { OpenAIContentError } from "../../functions/lib/openai-content"
+import { fakeAuthDatabase } from "./auth-env-fixtures"
 
 const env: ContentEnv = {
   AUTH_USERNAME: "studio-user",
@@ -19,6 +20,7 @@ const env: ContentEnv = {
     put: async () => undefined,
     delete: async () => undefined,
   },
+  AUTH_DB: fakeAuthDatabase(),
   OPENAI_API_KEY: "test-key",
 }
 
