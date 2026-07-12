@@ -9,7 +9,12 @@ import type {
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 const MODEL = "gpt-5.6-luna"
-const MEDICAL_CLAIMS = ["치료합니다", "완치", "교정됩니다", "낫습니다"]
+const MEDICAL_CLAIM_PATTERNS = [
+  /치료(?:해줍니다|해드립니다|합니다|됩니다|할수있(?:습니다|어요|다))/,
+  /(?:완치|치유)(?:$|됩니다|시킵니다|될수있(?:습니다|어요|다)|할수있(?:습니다|어요|다))/,
+  /교정(?:해줍니다|해드립니다|합니다|됩니다|할수있(?:습니다|어요|다))/,
+  /(?:나아|낫)(?:집니다|습니다|질수있(?:습니다|어요|다)|게됩니다|게해줍니다)/,
+]
 
 interface JsonSchema {
   type: string
@@ -90,9 +95,10 @@ export function validateGeneratedContent(
     ? (content as GeneratedNaver).body
     : (content as GeneratedInstagram).captionLong
 
-  const forbidden = [...forbiddenExpressions(input.avoid), ...MEDICAL_CLAIMS]
-  const allText = generatedCopy(channel, content).join("\n")
-  if (forbidden.some((expression) => allText.includes(expression))) {
+  const copy = generatedCopy(channel, content)
+  const allText = copy.join("\n")
+  if (forbiddenExpressions(input.avoid).some((expression) => allText.includes(expression))
+    || copy.some(hasMedicalClaim)) {
     throw new OpenAIContentError("금지 표현이 콘텐츠에 포함되었어요.", true)
   }
 
@@ -268,6 +274,13 @@ function isStringArray(value: unknown, exactLength?: number): value is string[] 
 
 function forbiddenExpressions(avoid: string): string[] {
   return avoid.split(/[,\n]/).map((value) => value.trim()).filter(Boolean)
+}
+
+function hasMedicalClaim(value: string): boolean {
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[\s.,!?·…'"“”‘’()[\]{}:;—–_-]+/g, "")
+  return MEDICAL_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
 function generatedCopy(channel: ContentChannel, content: GeneratedContent): string[] {

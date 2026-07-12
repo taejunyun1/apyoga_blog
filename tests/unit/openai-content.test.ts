@@ -180,6 +180,42 @@ describe("OpenAI content client", () => {
     await expectRetryable(result, "금지 표현이 콘텐츠에 포함되었어요.")
   })
 
+  it.each([
+    ["treatment", "호흡으로 통증을 치료해 줍니다."],
+    ["complete cure", "호흡 수련으로 불편함이 완치될 수 있습니다."],
+    ["healing", "호흡을 이어 가면 증상이 치유됩니다."],
+    ["correction", "호흡이 척추를 교정할 수 있습니다."],
+    ["recovery", "호흡을 하면 통증이 나아집니다."],
+  ])("rejects a %s certainty variant without a matching custom avoid term", async (_name, claim) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(completed({
+      ...validNaver(),
+      body: `${validNaver().body} ${claim}`,
+    }))
+
+    const result = requestOpenAIContent(
+      "naver",
+      { ...request, avoid: "과장" },
+      { OPENAI_API_KEY: "test-key" },
+      { fetcher, safetyIdentifier: "hashed-user" },
+    )
+
+    await expectRetryable(result, "금지 표현이 콘텐츠에 포함되었어요.")
+  })
+
+  it("allows benign observation copy and the class-info verification sentence", () => {
+    const naver = {
+      ...validNaver(),
+      body: `${validNaver().body} 몸의 감각이 나아가는 방향을 살펴봅니다.`,
+      classInfo: "수업 정보는 게시 전에 확인해 주세요.",
+    }
+
+    expect(() => validateGeneratedContent(
+      "naver",
+      naver,
+      { ...request, avoid: "과장" },
+    )).not.toThrow()
+  })
+
   it("rejects content missing the required phrase as retryable", async () => {
     const withoutRequired: GenerateContentInput = { ...request, mustInclude: "반드시포함" }
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(completed(validInstagram()))
