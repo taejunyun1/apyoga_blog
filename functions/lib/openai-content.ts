@@ -9,12 +9,12 @@ import type {
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 const MODEL = "gpt-5.6-luna"
-const MEDICAL_CLAIM_PATTERNS = [
-  /치료(?:해줍니다|해드립니다|합니다|됩니다|할수있(?:습니다|어요|다))/,
-  /(?:완치|치유)(?:$|됩니다|시킵니다|될수있(?:습니다|어요|다)|할수있(?:습니다|어요|다))/,
-  /교정(?:해줍니다|해드립니다|합니다|됩니다|할수있(?:습니다|어요|다))/,
-  /(?:나아|낫)(?:집니다|습니다|질수있(?:습니다|어요|다)|게됩니다|게해줍니다)/,
+const DIRECT_MEDICAL_CLAIM_PATTERNS = [
+  /치료(?:해(?:줍니다|드립니다|드릴수있(?:습니다|어요|다))|합니다|됩니다|할수있(?:습니다|어요|다))/,
+  /(?:완치|치유)(?:$|됩니다|시킵니다|될수있(?:습니다|어요|다)|할수있(?:습니다|어요|다)|(?:를)?보장(?:합니다|드립니다|할수있(?:습니다|어요|다)))/,
+  /교정(?:해(?:줍니다|드립니다|드릴수있(?:습니다|어요|다))|합니다|됩니다|할수있(?:습니다|어요|다))/,
 ]
+const MEDICAL_RECOVERY_PATTERN = /(?:통증|질환|질병|증상|부상|상처|염증|불편감)(?:이|가|은|는|을|를)?.{0,20}(?:나아집니다|낫습니다|나아질수있(?:습니다|어요|다)|나아지게됩니다|낫게됩니다)/
 
 interface JsonSchema {
   type: string
@@ -280,7 +280,8 @@ function hasMedicalClaim(value: string): boolean {
   const normalized = value
     .normalize("NFKC")
     .replace(/[\s.,!?·…'"“”‘’()[\]{}:;—–_-]+/g, "")
-  return MEDICAL_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))
+  return DIRECT_MEDICAL_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))
+    || MEDICAL_RECOVERY_PATTERN.test(normalized)
 }
 
 function generatedCopy(channel: ContentChannel, content: GeneratedContent): string[] {

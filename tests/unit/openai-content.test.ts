@@ -202,6 +202,48 @@ describe("OpenAI content client", () => {
     await expectRetryable(result, "금지 표현이 콘텐츠에 포함되었어요.")
   })
 
+  it.each([
+    ["treatment guarantee", "호흡 수련으로 통증을 치료해 드릴 수 있습니다."],
+    ["correction guarantee", "호흡으로 척추를 교정해 드릴 수 있습니다."],
+    ["cure guarantee", "이 수련은 완치를 보장합니다."],
+  ])("rejects a direct %s", async (_name, claim) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(completed({
+      ...validNaver(),
+      body: `${validNaver().body} ${claim}`,
+    }))
+
+    const result = requestOpenAIContent(
+      "naver",
+      { ...request, avoid: "과장" },
+      { OPENAI_API_KEY: "test-key" },
+      { fetcher, safetyIdentifier: "hashed-user" },
+    )
+
+    await expectRetryable(result, "금지 표현이 콘텐츠에 포함되었어요.")
+  })
+
+  it.each([
+    "통증이 나아집니다.",
+    "질환이 낫습니다.",
+  ])("rejects medical-context recovery certainty: %s", (claim) => {
+    expect(() => validateGeneratedContent(
+      "naver",
+      { ...validNaver(), body: `${validNaver().body} ${claim}` },
+      { ...request, avoid: "과장" },
+    )).toThrow("금지 표현이 콘텐츠에 포함되었어요.")
+  })
+
+  it.each([
+    "무리하기보다 편안한 범위에 머무는 편이 낫습니다.",
+    "동작의 연결이 나아집니다.",
+  ])("allows benign comparative or movement copy: %s", (sentence) => {
+    expect(() => validateGeneratedContent(
+      "naver",
+      { ...validNaver(), body: `${validNaver().body} ${sentence}` },
+      { ...request, avoid: "과장" },
+    )).not.toThrow()
+  })
+
   it("allows benign observation copy and the class-info verification sentence", () => {
     const naver = {
       ...validNaver(),
