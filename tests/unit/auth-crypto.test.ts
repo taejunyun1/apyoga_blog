@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createSession, SESSION_SECONDS, verifyPassword, verifySession } from "../../functions/lib/auth"
 
 async function testRecord(password: string): Promise<string> {
@@ -14,6 +14,23 @@ describe("authentication cryptography", () => {
     const encoded = await testRecord("test-password")
     expect(await verifyPassword("test-password", encoded)).toBe(true)
     expect(await verifyPassword("wrong-password", encoded)).toBe(false)
+  })
+
+  it("uses the Cloudflare-compatible object form for the PBKDF2 hash", async () => {
+    const encoded = await testRecord("test-password")
+    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle)
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, key, length) => {
+      if (typeof (algorithm as Pbkdf2Params).hash === "string") {
+        throw new DOMException("String hash identifiers are not supported", "NotSupportedError")
+      }
+      return deriveBits(algorithm, key, length)
+    })
+
+    try {
+      await expect(verifyPassword("test-password", encoded)).resolves.toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it("accepts a signed session until the 30-day expiry", async () => {

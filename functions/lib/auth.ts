@@ -27,7 +27,7 @@ export async function verifyPassword(password: string, encoded: string): Promise
     const expected = decode(hashText)
     if (salt.length !== 16 || expected.length !== 32) return false
     const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"])
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256)
+    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: { name: "SHA-256" }, salt, iterations }, key, 256)
     return equal(new Uint8Array(bits), expected)
   } catch {
     return false
