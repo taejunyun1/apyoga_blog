@@ -11,6 +11,10 @@ export interface AuthEnv {
   AUTH_RATE_LIMIT: RateLimitKV
 }
 
+export interface ContentEnv extends AuthEnv {
+  OPENAI_API_KEY: string
+}
+
 export interface PagesContext<Env> {
   request: Request
   env: Env
