@@ -16,6 +16,80 @@ function forbiddenExpressions(avoid: string): string[] {
   return avoid.split(/[,\n]/).map((term) => term.trim()).filter(Boolean)
 }
 
+function hasExactKeys<const Keys extends readonly string[]>(
+  value: unknown,
+  keys: Keys,
+): value is Record<Keys[number], unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  const actual = Object.keys(value)
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+}
+
+function isStringArray(value: unknown, exactLength?: number): value is string[] {
+  return Array.isArray(value)
+    && value.length > 0
+    && (exactLength === undefined || value.length === exactLength)
+    && value.every((entry) => typeof entry === "string" && entry.length > 0)
+}
+
+function isImagePlacement(value: unknown): value is RemoteNaver["imagePlacements"][number] {
+  return hasExactKeys(value, ["imageId", "afterParagraph", "caption"])
+    && typeof value.imageId === "string"
+    && value.imageId.length > 0
+    && Number.isInteger(value.afterParagraph)
+    && (value.afterParagraph as number) >= 0
+    && typeof value.caption === "string"
+    && value.caption.length > 0
+}
+
+function isRemoteNaver(value: unknown): value is RemoteNaver {
+  return hasExactKeys(value, ["titles", "introOptions", "body", "imagePlacements", "hashtags", "classInfo"])
+    && isStringArray(value.titles, 3)
+    && isStringArray(value.introOptions, 3)
+    && typeof value.body === "string"
+    && value.body.trim().length >= 500
+    && Array.isArray(value.imagePlacements)
+    && value.imagePlacements.length > 0
+    && value.imagePlacements.every(isImagePlacement)
+    && isStringArray(value.hashtags)
+    && typeof value.classInfo === "string"
+    && value.classInfo.length > 0
+}
+
+function isRemoteInstagram(value: unknown): value is RemoteInstagram {
+  return hasExactKeys(value, ["hookOptions", "captionLong", "captionShort", "hashtags", "coverImageId", "imageOrder"])
+    && isStringArray(value.hookOptions, 3)
+    && typeof value.captionLong === "string"
+    && value.captionLong.length > 0
+    && typeof value.captionShort === "string"
+    && value.captionShort.length > 0
+    && value.captionLong.trim() !== value.captionShort.trim()
+    && isStringArray(value.hashtags)
+    && typeof value.coverImageId === "string"
+    && value.coverImageId.length > 0
+    && isStringArray(value.imageOrder)
+}
+
+function naverPublishableText(data: RemoteNaver): string[] {
+  return [
+    ...data.titles,
+    ...data.introOptions,
+    data.body,
+    ...data.imagePlacements.map((placement) => placement.caption),
+    ...data.hashtags,
+    data.classInfo,
+  ]
+}
+
+function instagramPublishableText(data: RemoteInstagram): string[] {
+  return [
+    ...data.hookOptions,
+    data.captionLong,
+    data.captionShort,
+    ...data.hashtags,
+  ]
+}
+
 function defaultOnAuthRequired(): void {
   const next = `${window.location.pathname}${window.location.search}`
   window.location.assign(`/login?next=${encodeURIComponent(next)}`)
@@ -70,29 +144,49 @@ export class OpenAIProvider implements AIProvider {
     }
     if (!response.ok) throw new Error("AI 생성 요청에 실패했어요.")
 
-    const payload = await response.json() as { data: RemoteOutput }
+    const data = await readRemoteData(response, channel)
+    if (!data) return { ...(await fallback()), generationSource: "local-fallback" }
+
     if (channel === "naver") {
-      const data = payload.data as RemoteNaver
+      const naver = data as RemoteNaver
+      const publishableText = naverPublishableText(naver)
       return {
-        ...data,
+        ...naver,
         generationSource: "openai",
         qualityChecks: {
-          avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => data.body.includes(term)),
-          includesRequiredPhrase: !input.mustInclude.trim() || data.body.includes(input.mustInclude.trim()),
+          avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
+          includesRequiredPhrase: !input.mustInclude.trim() || naver.body.includes(input.mustInclude.trim()),
         },
       }
     }
 
-    const data = payload.data as RemoteInstagram
+    const instagram = data as RemoteInstagram
+    const publishableText = instagramPublishableText(instagram)
     return {
-      ...data,
+      ...instagram,
       generationSource: "openai",
       qualityChecks: {
-        distinctFromNaver: true,
-        avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => data.captionLong.includes(term)),
+        avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
       },
     }
   }
+}
+
+async function readRemoteData(response: Response, channel: Channel): Promise<RemoteOutput | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+
+  if (!hasExactKeys(payload, ["channel", "source", "data"])
+    || payload.channel !== channel
+    || payload.source !== "openai") {
+    return null
+  }
+  if (channel === "naver") return isRemoteNaver(payload.data) ? payload.data : null
+  return isRemoteInstagram(payload.data) ? payload.data : null
 }
 
 function toContentInput(channel: Channel, input: ChannelInput) {

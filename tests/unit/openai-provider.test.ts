@@ -24,7 +24,7 @@ function validNaver() {
   return {
     titles: ["천천히 여는 저녁", "몸의 감각을 듣는 시간", "차분하게 이어 간 수련"],
     introOptions: ["오늘의 몸을 살폈습니다.", "작은 움직임에서 시작했습니다.", "편안한 리듬을 찾았습니다."],
-    body: "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살폈습니다. ".repeat(12),
+    body: "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살폈습니다. ".repeat(20),
     imagePlacements: [{ imageId: "image-1", afterParagraph: 2, caption: "수련 장면" }],
     hashtags: ["#에이피요가", "#요가기록"],
     classInfo: "수업 정보는 게시 전에 확인해 주세요.",
@@ -47,7 +47,7 @@ describe("OpenAIProvider", () => {
     ["naver", validNaver()],
     ["instagram", validInstagram()],
   ] as const)("requests %s without image binaries or private image metadata", async (channel, data) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel, source: "openai", data: { ...data, qualityChecks: { trusted: false } } }))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel, source: "openai", data }))
     const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
 
     const result = channel === "naver"
@@ -55,7 +55,8 @@ describe("OpenAIProvider", () => {
       : await provider.generateInstagram(channelInput)
 
     expect(result.generationSource).toBe("openai")
-    expect(result.qualityChecks).not.toHaveProperty("trusted")
+    expect(result.qualityChecks.avoidedExpressionRemoved).toBe(true)
+    expect(result.qualityChecks).not.toHaveProperty("distinctFromNaver")
     expect(fetcher).toHaveBeenCalledOnce()
     const init = fetcher.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(init.body))
@@ -94,6 +95,90 @@ describe("OpenAIProvider", () => {
 
     expect(result.generationSource).toBe("local-fallback")
     expect(result.body.trim().length).toBeGreaterThanOrEqual(500)
+  })
+
+  it.each([
+    ["malformed JSON", () => new Response("{", { status: 200, headers: { "Content-Type": "application/json" } })],
+    ["a non-object envelope", () => Response.json(null)],
+    ["a mismatched channel", () => Response.json({ channel: "instagram", source: "openai", data: validNaver() })],
+    ["a non-OpenAI source", () => Response.json({ channel: "naver", source: "local-fallback", data: validNaver() })],
+  ])("falls back locally when a 2xx response has %s", async (_label, response) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "generateNaver")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response()),
+      local,
+    })
+
+    const result = await provider.generateNaver(channelInput)
+
+    expect(result.generationSource).toBe("local-fallback")
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["a missing field", (({ classInfo: _classInfo, ...data }) => data)(validNaver())],
+    ["an extra field", { ...validNaver(), qualityChecks: { trusted: false } }],
+    ["the wrong title count", { ...validNaver(), titles: ["하나", "둘"] }],
+    ["a non-string intro", { ...validNaver(), introOptions: ["하나", 2, "셋"] }],
+    ["a short body", { ...validNaver(), body: "호흡이 있는 짧은 본문" }],
+    ["no image placements", { ...validNaver(), imagePlacements: [] }],
+    ["an invalid image placement", { ...validNaver(), imagePlacements: [{ imageId: "", afterParagraph: -1, caption: 2 }] }],
+    ["non-string hashtags", { ...validNaver(), hashtags: [1] }],
+    ["an empty class info field", { ...validNaver(), classInfo: "" }],
+  ])("falls back locally when Naver data has %s", async (_label, data) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "generateNaver")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel: "naver", source: "openai", data })),
+      local,
+    })
+
+    const result = await provider.generateNaver(channelInput)
+
+    expect(result.generationSource).toBe("local-fallback")
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["a missing field", (({ imageOrder: _imageOrder, ...data }) => data)(validInstagram())],
+    ["an extra field", { ...validInstagram(), extra: true }],
+    ["the wrong hook count", { ...validInstagram(), hookOptions: ["하나", "둘"] }],
+    ["a non-string caption", { ...validInstagram(), captionLong: 2 }],
+    ["matching long and short captions", { ...validInstagram(), captionShort: validInstagram().captionLong }],
+    ["non-string hashtags", { ...validInstagram(), hashtags: [1] }],
+    ["an empty cover image ID", { ...validInstagram(), coverImageId: "" }],
+    ["an empty image order", { ...validInstagram(), imageOrder: [] }],
+  ])("falls back locally when Instagram data has %s", async (_label, data) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "generateInstagram")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel: "instagram", source: "openai", data })),
+      local,
+    })
+
+    const result = await provider.generateInstagram(channelInput)
+
+    expect(result.generationSource).toBe("local-fallback")
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["naver", { ...validNaver(), titles: ["치료를 말하지 않는 기록", ...validNaver().titles.slice(1)] }],
+    ["instagram", { ...validInstagram(), hookOptions: ["치료를 말하지 않는 기록", ...validInstagram().hookOptions.slice(1)] }],
+  ] as const)("checks forbidden expressions in every %s publishable field", async (channel, data) => {
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel, source: "openai", data })),
+      local: new LocalAIProvider(),
+    })
+
+    const result = channel === "naver"
+      ? await provider.generateNaver(channelInput)
+      : await provider.generateInstagram(channelInput)
+
+    expect(result.generationSource).toBe("openai")
+    expect(result.qualityChecks.avoidedExpressionRemoved).toBe(false)
+    expect(result.qualityChecks).not.toHaveProperty("distinctFromNaver")
   })
 
   it.each([401, 403])("requires authentication for %s without using local fallback", async (status) => {

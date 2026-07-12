@@ -70,13 +70,13 @@ describe("studio workflow store", () => {
     expect(store.draft?.step).toBe("results")
   })
 
-  it("keeps both channels successful when only Naver uses local fallback", async () => {
+  it("keeps both channels successful when a mismatched Naver response uses local fallback", async () => {
     const repository = new InMemoryRepository()
     const remoteInstagram = await new LocalAIProvider().generateInstagram({ ...analyzeInput, brief })
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
       const request = JSON.parse(String(init?.body)) as { channel: "naver" | "instagram" }
-      if (request.channel === "naver") return new Response(null, { status: 502 })
       const { generationSource: _generationSource, qualityChecks: _qualityChecks, ...data } = remoteInstagram
+      if (request.channel === "naver") return Response.json({ channel: "instagram", source: "openai", data })
       return Response.json({ channel: "instagram", source: "openai", data })
     })
     configureStudioServices({ repository, ai: new OpenAIProvider({ fetcher }) })
