@@ -66,9 +66,9 @@ PLAYWRIGHT_BASE_URL="$AUTH_TEST_BASE_URL" npm run test:e2e:auth
 
 ## AI 동작과 제한
 
-현재 생성기는 네트워크를 사용하지 않는 결정론적 `LocalAIProvider`입니다. 결과 화면에도 “로컬 데모 AI”라고 표시됩니다. 실제 OpenAI 결과나 최신 수업·예약 정보를 제공하지 않으므로 게시 전에 문장, 날짜, 수업 정보를 반드시 확인하세요.
+프로덕션 생성 요청은 Cloudflare Pages Functions에서 OpenAI Responses API로 전달됩니다. `OPENAI_API_KEY`는 Pages secret으로만 보관되며 브라우저 코드나 응답에 노출되지 않습니다. Responses 요청에는 `store: false`를 사용하고, 네이버 본문은 500자 이상인지 검증합니다. OpenAI 호출이 실패하거나 응답 계약을 충족하지 못하면 로컬 생성 결과로 대체될 수 있으므로 게시 전에 문장, 날짜, 수업 정보를 반드시 확인하세요.
 
-자동 게시, Cloudflare Access, D1/R2 서버 저장, 실제 OpenAI 호출, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
+자동 게시, Cloudflare Access, D1/R2 서버 저장, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
 
 ## Cloudflare Pages 배포
 
@@ -110,6 +110,17 @@ npm run auth:provision
 이 명령은 비밀번호 해시와 새 `SESSION_SECRET`을 함께 등록하므로 기존 로그인 세션도 무효화합니다. 로그인 쿠키의 최대 수명은 30일이며 로그아웃 또는 자격 증명 회전 시 그보다 일찍 종료됩니다.
 
 로그인 실패 횟수는 Cloudflare KV에 저장됩니다. KV는 eventual consistency 방식이므로 엣지 위치가 다른 동시 요청에서는 제한 상태 반영이 잠시 늦거나 서로 다르게 보일 수 있습니다. 강한 일관성이 필요한 계정 잠금 수단으로 사용하지 마세요.
+
+### OpenAI secret 운영
+
+`OPENAI_API_KEY`는 대화형 프로비저닝 명령의 숨김 프롬프트로만 입력합니다. 이 명령은 키를 명령줄 인수나 파일에 기록하지 않고 Wrangler의 표준 입력으로 전달합니다. 등록 후 프로덕션을 배포합니다.
+
+```bash
+npm run openai:provision
+npm run deploy:cloudflare
+```
+
+공유 채팅에 입력했던 OpenAI API key는 배포가 끝난 직후 OpenAI에서 회전하고, 새 키를 위 명령으로 다시 등록하세요. 이전 키는 폐기되었는지 확인하고 키 값을 문서, 셸 기록, `.env` 또는 `.dev.vars`에 남기지 마세요.
 
 ## 운영형 전환 로드맵
 
