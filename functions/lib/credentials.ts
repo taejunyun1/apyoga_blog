@@ -51,18 +51,26 @@ export async function readActiveCredential(env: AuthEnv): Promise<ActiveCredenti
 
 export async function changeCredential(
   env: AuthEnv,
+  active: ActiveCredential,
   passwordHash: string,
   version: string,
   updatedAt: string,
 ): Promise<void> {
-  const result = await primary(env)
-    .prepare(`INSERT INTO auth_credentials (id, password_hash, credential_version, updated_at)
-      VALUES (?1, ?2, ?3, ?4)
-      ON CONFLICT(id) DO UPDATE SET
-        password_hash = excluded.password_hash,
-        credential_version = excluded.credential_version,
-        updated_at = excluded.updated_at`)
-    .bind(1, passwordHash, version, updatedAt)
-    .run()
-  if (!result.success) throw new Error("인증 저장소를 갱신하지 못했어요.")
+  const session = primary(env)
+  const result = active.source === "d1"
+    ? await session
+        .prepare(`UPDATE auth_credentials
+          SET password_hash = ?1, credential_version = ?2, updated_at = ?3
+          WHERE id = ?4 AND credential_version = ?5`)
+        .bind(passwordHash, version, updatedAt, 1, active.version)
+        .run()
+    : await session
+        .prepare(`INSERT INTO auth_credentials (id, password_hash, credential_version, updated_at)
+          VALUES (?1, ?2, ?3, ?4)
+          ON CONFLICT(id) DO NOTHING`)
+        .bind(1, passwordHash, version, updatedAt)
+        .run()
+  if (!result.success || result.meta.changes !== 1) {
+    throw new Error("인증 저장소를 갱신하지 못했어요.")
+  }
 }

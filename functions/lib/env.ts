@@ -7,7 +7,7 @@ export interface RateLimitKV {
 export interface AuthDatabaseStatement {
   bind(...values: unknown[]): AuthDatabaseStatement
   first<T>(): Promise<T | null>
-  run(): Promise<{ success: boolean }>
+  run(): Promise<{ success: boolean; meta: { changes: number } }>
 }
 
 export interface AuthDatabaseSession {

@@ -58,7 +58,6 @@ async function submit() {
             type="password"
             autocomplete="current-password"
             required
-            minlength="12"
             maxlength="256"
             :disabled="busy"
           />

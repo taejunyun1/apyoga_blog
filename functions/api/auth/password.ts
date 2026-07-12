@@ -134,11 +134,16 @@ export async function handlePasswordChange(
       const record = await createPasswordRecord(newPassword)
       await changeCredential(
         env,
+        active,
         record,
         crypto.randomUUID(),
         new Date(nowSeconds * 1_000).toISOString(),
       )
-      await clearFailures(env, key)
+      try {
+        await clearFailures(env, key)
+      } catch {
+        // Credential rotation already succeeded; stale failure-window cleanup is best-effort.
+      }
       return new Response(null, {
         status: 204,
         headers: { "Cache-Control": "no-store", "Set-Cookie": expiredSessionCookie() },

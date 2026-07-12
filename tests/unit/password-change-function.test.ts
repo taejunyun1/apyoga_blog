@@ -44,22 +44,27 @@ class CredentialStatement implements AuthDatabaseStatement {
 
   async first<T>(): Promise<T | null> {
     if (this.database.readError) throw this.database.readError
+    await this.database.waitForConcurrentReads()
     return {
       password_hash: this.database.latest.passwordHash,
       credential_version: this.database.latest.version,
     } as T
   }
 
-  async run(): Promise<{ success: boolean }> {
+  async run(): Promise<{ success: boolean; meta: { changes: number } }> {
     if (this.database.writeError) throw this.database.writeError
-    expect(this.query).toContain("INSERT INTO auth_credentials")
+    expect(this.query).toContain("UPDATE auth_credentials")
+    const expectedVersion = String(this.values[4])
+    if (this.database.latest.version !== expectedVersion) {
+      return { success: true, meta: { changes: 0 } }
+    }
     this.database.latest = {
-      passwordHash: String(this.values[1]),
-      version: String(this.values[2]),
-      updatedAt: String(this.values[3]),
+      passwordHash: String(this.values[0]),
+      version: String(this.values[1]),
+      updatedAt: String(this.values[2]),
     }
     this.database.writes.push([...this.values])
-    return { success: true }
+    return { success: true, meta: { changes: 1 } }
   }
 }
 
@@ -68,9 +73,22 @@ class CredentialDatabase implements AuthDatabase {
   readonly writes: unknown[][] = []
   readError?: Error
   writeError?: Error
+  private reads = 0
+  private readonly releaseReads: (() => void) | undefined
+  private readonly readsReleased: Promise<void>
 
-  constructor(passwordHash: string) {
+  constructor(passwordHash: string, private readonly concurrentReadTarget = 0) {
     this.latest = { passwordHash, version: "version-1" }
+    let releaseReads: (() => void) | undefined
+    this.readsReleased = new Promise((resolve) => { releaseReads = resolve })
+    this.releaseReads = releaseReads
+  }
+
+  async waitForConcurrentReads(): Promise<void> {
+    if (this.concurrentReadTarget === 0) return
+    this.reads += 1
+    if (this.reads === this.concurrentReadTarget) this.releaseReads?.()
+    await this.readsReleased
   }
 
   withSession(constraint: "first-primary"): AuthDatabaseSession {
@@ -139,6 +157,47 @@ describe("authenticated password-change Function", () => {
     expect(database.latest.updatedAt).toBe("1970-01-01T00:16:40.000Z")
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0")
     expect(response.headers.get("Cache-Control")).toBe("no-store")
+  })
+
+  it("reports success after the D1 change even when failure-window cleanup rejects", async () => {
+    class RejectingDeleteKV extends MemoryRateLimitKV {
+      override async delete(): Promise<void> {
+        throw new Error("synthetic KV cleanup failure")
+      }
+    }
+    const { database, env } = makeEnv(undefined, new RejectingDeleteKV())
+
+    const response = await handlePasswordChange(passwordRequest({
+      currentPassword: "test-password",
+      newPassword: "new-password-123",
+    }), env, nowSeconds)
+
+    expect(database.writes).toHaveLength(1)
+    expect(response.status).toBe(204)
+    expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0")
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+  })
+
+  it("allows only one of two changes verified against the same D1 credential", async () => {
+    const database = new CredentialDatabase(initialPasswordHash, 2)
+    const { env } = makeEnv(database)
+
+    const responses = await Promise.all([
+      handlePasswordChange(passwordRequest({
+        currentPassword: "test-password",
+        newPassword: "first-new-password",
+      }), env, nowSeconds),
+      handlePasswordChange(passwordRequest({
+        currentPassword: "test-password",
+        newPassword: "second-new-password",
+      }), env, nowSeconds),
+    ])
+
+    expect(responses.map((response) => response.status).sort()).toEqual([204, 503])
+    expect(database.writes).toHaveLength(1)
+    const failed = responses.find((response) => response.status === 503)
+    expect(failed?.headers.get("Set-Cookie")).toBeNull()
+    await expect(failed?.json()).resolves.toEqual({ message: "비밀번호를 변경하지 못했어요." })
   })
 
   it("clears the mutable parsed password fields after handling", async () => {

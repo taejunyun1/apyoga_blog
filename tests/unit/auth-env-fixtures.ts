@@ -22,8 +22,8 @@ class FakeAuthStatement implements AuthDatabaseStatement {
     return (this.options.row ?? null) as T | null
   }
 
-  async run(): Promise<{ success: boolean }> {
-    return { success: this.options.runSuccess ?? true }
+  async run(): Promise<{ success: boolean; meta: { changes: number } }> {
+    return { success: this.options.runSuccess ?? true, meta: { changes: 1 } }
   }
 }
 

@@ -36,6 +36,26 @@ describe("Cloudflare Pages deployment", () => {
       .toContain("CREATE TABLE IF NOT EXISTS auth_credentials")
   })
 
+  it("documents mandatory AUTH_DB provisioning, migration, safe inspection, and deploy order", () => {
+    const readme = readFileSync(path.join(root, "README.md"), "utf8")
+    const create = "npx wrangler d1 create ap-yoga-auth --location apac"
+    const list = "npx wrangler d1 list --json"
+    const localMigration = "npx wrangler d1 migrations apply ap-yoga-auth --local"
+    const remoteMigration = "npx wrangler d1 migrations apply ap-yoga-auth --remote"
+    const safeQuery = "SELECT id, credential_version, updated_at FROM auth_credentials"
+    const deploy = "npm run deploy:cloudflare"
+
+    expect(readme).toContain("AUTH_DB")
+    expect(readme).toContain(create)
+    expect(readme).toContain(list)
+    expect(readme).toContain(localMigration)
+    expect(readme).toContain(remoteMigration)
+    expect(readme).toContain(safeQuery)
+    expect(readme).toContain("콘텐츠·이미지의 D1/R2 서버 저장")
+    expect(readme.indexOf(localMigration)).toBeLessThan(readme.indexOf(remoteMigration))
+    expect(readme.indexOf(remoteMigration)).toBeLessThan(readme.indexOf(deploy))
+  })
+
   it("builds before invoking the checked-in Wrangler CLI", () => {
     const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>

@@ -106,7 +106,13 @@ describe("password-change view", () => {
     expect(wrapper.get("[name=currentPassword]").attributes("autocomplete")).toBe("current-password")
     expect(wrapper.get("[name=newPassword]").attributes("autocomplete")).toBe("new-password")
     expect(wrapper.get("[name=confirmPassword]").attributes("autocomplete")).toBe("new-password")
-    for (const name of ["currentPassword", "newPassword", "confirmPassword"]) {
+    expect(wrapper.get("[name=currentPassword]").attributes()).toMatchObject({
+      type: "password",
+      required: "",
+      maxlength: "256"
+    })
+    expect(wrapper.get("[name=currentPassword]").attributes("minlength")).toBeUndefined()
+    for (const name of ["newPassword", "confirmPassword"]) {
       expect(wrapper.get(`[name=${name}]`).attributes()).toMatchObject({
         type: "password",
         required: "",
@@ -115,6 +121,17 @@ describe("password-change view", () => {
       })
     }
     expect(wrapper.get('a[href="/"]').text()).toBe("취소")
+  })
+
+  it("submits a legacy current password shorter than the new-password minimum", async () => {
+    const changePassword = vi.fn().mockResolvedValue(undefined)
+    const { wrapper } = await mountChangePassword(authClient({ changePassword }))
+    await fillPasswords(wrapper, ["short-old", "new-password-123", "new-password-123"])
+
+    await wrapper.get("form").trigger("submit")
+    await flushPromises()
+
+    expect(changePassword).toHaveBeenCalledWith("short-old", "new-password-123")
   })
 
   it("rejects a confirmation mismatch without a request and clears every password", async () => {

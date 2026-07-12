@@ -9,13 +9,17 @@ class FakeStatement implements AuthDatabaseStatement {
     private readonly onRun: (values: unknown[]) => void,
     private readonly readError?: Error,
     private readonly runSuccess = true,
+    private readonly runChanges = 1,
   ) {}
   bind(...values: unknown[]) { this.values = values; return this }
   async first<T>() {
     if (this.readError) throw this.readError
     return this.row as T | null
   }
-  async run() { this.onRun(this.values); return { success: this.runSuccess } }
+  async run() {
+    this.onRun(this.values)
+    return { success: this.runSuccess, meta: { changes: this.runChanges } }
+  }
 }
 
 class FakeSession implements AuthDatabaseSession {
@@ -23,7 +27,7 @@ class FakeSession implements AuthDatabaseSession {
   readonly queries: string[] = []
   constructor(
     readonly row: Record<string, unknown> | null,
-    readonly options: { readError?: Error; runSuccess?: boolean } = {},
+    readonly options: { readError?: Error; runSuccess?: boolean; runChanges?: number } = {},
   ) {}
   prepare(query: string) {
     this.queries.push(query)
@@ -32,6 +36,7 @@ class FakeSession implements AuthDatabaseSession {
       (values) => this.runs.push(values),
       this.options.readError,
       this.options.runSuccess,
+      this.options.runChanges,
     )
   }
 }
@@ -101,16 +106,49 @@ describe("active credential repository", () => {
     await expect(readActiveCredential(env(new FakeDatabase(new FakeSession(row))))).rejects.toThrow("올바르지 않아요")
   })
 
-  it("upserts one credential row", async () => {
+  it("conditionally updates the D1 credential version that was verified", async () => {
     const session = new FakeSession(null)
-    await changeCredential(env(new FakeDatabase(session)), "new-record", "version-3", "2026-07-12T12:00:00.000Z")
+    await changeCredential(
+      env(new FakeDatabase(session)),
+      { passwordHash: "old-record", version: "version-2", source: "d1" },
+      "new-record",
+      "version-3",
+      "2026-07-12T12:00:00.000Z",
+    )
+    expect(session.runs).toEqual([["new-record", "version-3", "2026-07-12T12:00:00.000Z", 1, "version-2"]])
+    const writeSql = session.queries[0].replace(/\s+/g, " ")
+    expect(writeSql).toContain("UPDATE auth_credentials")
+    expect(writeSql).toContain("password_hash = ?1")
+    expect(writeSql).toContain("credential_version = ?2")
+    expect(writeSql).toContain("updated_at = ?3")
+    expect(writeSql).toContain("WHERE id = ?4 AND credential_version = ?5")
+  })
+
+  it("conditionally inserts a D1 override when the verified credential came from the secret", async () => {
+    const session = new FakeSession(null)
+    await changeCredential(
+      env(new FakeDatabase(session)),
+      { passwordHash: "secret-record", version: "derived-version", source: "secret" },
+      "new-record",
+      "version-3",
+      "2026-07-12T12:00:00.000Z",
+    )
     expect(session.runs).toEqual([[1, "new-record", "version-3", "2026-07-12T12:00:00.000Z"]])
     const writeSql = session.queries[0].replace(/\s+/g, " ")
     expect(writeSql).toContain("INSERT INTO auth_credentials (id, password_hash, credential_version, updated_at)")
-    expect(writeSql).toContain("ON CONFLICT(id) DO UPDATE")
-    expect(writeSql).toContain("password_hash = excluded.password_hash")
-    expect(writeSql).toContain("credential_version = excluded.credential_version")
-    expect(writeSql).toContain("updated_at = excluded.updated_at")
+    expect(writeSql).toContain("ON CONFLICT(id) DO NOTHING")
+  })
+
+  it("rejects a stale credential update when D1 changes no rows", async () => {
+    const session = new FakeSession(null, { runChanges: 0 })
+
+    await expect(changeCredential(
+      env(new FakeDatabase(session)),
+      { passwordHash: "old-record", version: "stale-version", source: "d1" },
+      "new-record",
+      "version-3",
+      "2026-07-12T12:00:00.000Z",
+    )).rejects.toThrow("갱신하지 못했어요")
   })
 
   it("rejects a credential update when D1 reports an unsuccessful run", async () => {
@@ -118,6 +156,7 @@ describe("active credential repository", () => {
 
     await expect(changeCredential(
       env(new FakeDatabase(session)),
+      { passwordHash: "old-record", version: "version-2", source: "d1" },
       "new-record",
       "version-3",
       "2026-07-12T12:00:00.000Z",

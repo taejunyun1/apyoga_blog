@@ -68,13 +68,37 @@ PLAYWRIGHT_BASE_URL="$AUTH_TEST_BASE_URL" npm run test:e2e:auth
 
 프로덕션 생성 요청은 Cloudflare Pages Functions에서 OpenAI Responses API로 전달됩니다. `OPENAI_API_KEY`는 Pages secret으로만 보관되며 브라우저 코드나 응답에 노출되지 않습니다. Responses 요청에는 `store: false`를 사용하고, 네이버 본문은 500자 이상인지 검증합니다. OpenAI 호출이 실패하거나 응답 계약을 충족하지 못하면 로컬 생성 결과로 대체될 수 있으므로 게시 전에 문장, 날짜, 수업 정보를 반드시 확인하세요.
 
-자동 게시, Cloudflare Access, D1/R2 서버 저장, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
+자동 게시, Cloudflare Access, 콘텐츠·이미지의 D1/R2 서버 저장, 승인형 Brand Memory는 구현 범위 밖입니다. 관리자 인증 정보용 D1은 로그인 기능에 사용합니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
 
 ## Cloudflare Pages 배포
 
 프로덕션 URL: [https://ap-yoga-content-studio.pages.dev/](https://ap-yoga-content-studio.pages.dev/)
 
 로그인 URL: [https://ap-yoga-content-studio.pages.dev/login](https://ap-yoga-content-studio.pages.dev/login)
+
+### 인증 D1 준비와 마이그레이션
+
+Pages Functions의 로그인·비밀번호 변경에는 `AUTH_DB` D1 binding이 필수입니다. 새 Cloudflare 계정이나 프로젝트에서 처음 준비할 때만 데이터베이스를 만들고, 이미 `ap-yoga-auth`가 있으면 목록에서 기존 UUID를 확인합니다.
+
+```bash
+npx wrangler d1 create ap-yoga-auth --location apac
+npx wrangler d1 list --json
+```
+
+출력된 `ap-yoga-auth` UUID를 `wrangler.jsonc`의 `d1_databases` 항목에 `binding: "AUTH_DB"`, `database_name: "ap-yoga-auth"`, `database_id: "<UUID>"` 형식으로 등록합니다. 그다음 같은 마이그레이션을 로컬에 먼저 적용하고 원격 D1에 적용합니다.
+
+```bash
+npx wrangler d1 migrations apply ap-yoga-auth --local
+npx wrangler d1 migrations apply ap-yoga-auth --remote
+```
+
+원격 스키마 상태는 비밀번호 해시를 조회하지 않는 아래 읽기 전용 쿼리로만 확인합니다.
+
+```bash
+npx wrangler d1 execute ap-yoga-auth --remote --command "SELECT id, credential_version, updated_at FROM auth_credentials"
+```
+
+마이그레이션과 안전 조회가 성공한 뒤 프로덕션을 배포합니다.
 
 이 프로젝트는 Cloudflare Pages Direct Upload 방식입니다. `wrangler.jsonc`의 프로젝트명과 `dist` 출력 경로를 사용하며, 아래 명령은 빌드를 먼저 실행한 뒤 `master` 프로덕션 브랜치로 업로드합니다.
 
@@ -99,7 +123,7 @@ Direct Upload 프로젝트는 같은 프로젝트에서 Git integration 방식�
 
 ### 프로덕션 로그인 운영
 
-Pages에는 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET` 세 secret과 로그인 시도 제한용 `AUTH_RATE_LIMIT` KV binding이 필요합니다. 실제 아이디와 비밀번호, 파생 해시, 세션 secret 값은 문서·명령 기록·저장소에 남기지 않습니다.
+Pages에는 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET` 세 secret, 로그인 시도 제한용 `AUTH_RATE_LIMIT` KV binding, 관리자 자격 증명용 `AUTH_DB` D1 binding이 모두 필요합니다. 실제 아이디와 비밀번호, 파생 해시, 세션 secret 값은 문서·명령 기록·저장소에 남기지 않습니다.
 
 최초 등록은 대화형 터미널에서 아래 명령만 사용합니다. 아이디와 비밀번호는 이 명령의 프롬프트를 통해서만 입력하고, 개별 `wrangler pages secret put` 명령이나 파일에 직접 넣지 마세요.
 
