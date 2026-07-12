@@ -61,17 +61,48 @@ describe("ResultEditor", () => {
     expect(emitted()["select-option"]?.[0]).toEqual([{ channel: "naver", kind: "title", index: 1 }])
   })
 
+  it("keeps the option moved to the copy position visibly selected", async () => {
+    const view = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
+    const chosen = naverOutput.titles[1]
+
+    await fireEvent.click(screen.getByLabelText(chosen))
+    await view.rerender({
+      naver: {
+        ...naver,
+        data: {
+          ...naverOutput,
+          titles: [chosen, naverOutput.titles[0], naverOutput.titles[2]]
+        }
+      },
+      instagram: failedInstagram,
+      review,
+      copyFallback: null
+    })
+
+    expect((screen.getByLabelText(chosen) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(naverOutput.titles[0]) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it("requests simple feedback for channel and direct-text changes", async () => {
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null } })
+
+    await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
+    await fireEvent.update(screen.getByLabelText("기본형 캡션"), "직접 수정한 캡션")
+    await fireEvent.change(screen.getByLabelText("기본형 캡션"))
+
+    expect(emitted().notify).toEqual([
+      ["인스타그램 결과를 열었어요"]
+    ])
+    expect(emitted().edit?.[0]).toEqual([{ channel: "instagram", section: "caption", text: "직접 수정한 캡션" }])
+    expect(instagramOutput.captionLong).not.toBe("직접 수정한 캡션")
+  })
+
   it("shows selectable text when clipboard copy fails", () => {
     render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: "복사할 전체 글" } })
 
     expect(screen.getByText("길게 눌러 복사해 주세요")).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
     expect((screen.getByLabelText("직접 복사할 글") as HTMLTextAreaElement).value).toBe("복사할 전체 글")
-  })
-
-  it("announces a successful copy to assistive technology", () => {
-    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, copyStatus: "클립보드에 복사했어요" } })
-
-    expect(screen.getByRole("status").textContent).toContain("클립보드에 복사했어요")
   })
 
   it("shows the fallback status only while the local Naver channel is active", async () => {

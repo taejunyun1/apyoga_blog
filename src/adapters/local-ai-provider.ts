@@ -36,6 +36,15 @@ function safeAlternative(values: string[], avoid: string): string {
   return values.find((value) => sanitizeLocalFragment(value, avoid) === value) ?? ""
 }
 
+function differentSafeText(candidates: string[], currentText: string, avoid: string): string {
+  const current = currentText.trim()
+  const next = candidates
+    .map((candidate) => sanitizeLocalFragment(candidate, avoid))
+    .find((candidate) => candidate && candidate.trim() !== current && isSafePublishableCopy([candidate], avoid))
+  if (!next) throw new Error("이전과 다른 안전한 문구를 만들 수 없어요.")
+  return next
+}
+
 function requiredPhrase(input: AnalyzeImagesInput): string {
   const required = assertSafeRequiredPhrase(input.mustInclude, input.avoid)
   if (required) return required
@@ -209,11 +218,18 @@ export class LocalAIProvider implements AIProvider {
       if (!isSafePublishableCopy([current], input.avoid)) {
         throw new Error("금지 표현 또는 의료적 단정이 있는 본문은 안전하게 재작성할 수 없어요.")
       }
-      const rawAddition = input.instruction.includes("사진 설명")
-        ? "사진 속에서는 동작의 완성보다 시선이 머무는 방향과 손발이 바닥을 누르는 모습, 움직임 사이에 잠시 쉬어 가는 장면을 차분하게 살펴볼 수 있습니다."
-        : "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다."
-      const addition = sanitizeLocalFragment(rawAddition, input.avoid)
-      if (!addition || current.includes(addition)) return { section: input.section, text: current }
+      const rawAdditions = input.instruction.includes("사진 설명")
+        ? [
+            "사진 속에서는 동작의 완성보다 시선이 머무는 방향과 손발이 바닥을 누르는 모습, 움직임 사이에 잠시 쉬어 가는 장면을 차분하게 살펴볼 수 있습니다.",
+            "각 장면에 담긴 손의 위치와 발의 간격, 호흡을 고르는 순간을 따라가며 수련의 흐름을 구체적으로 기록했습니다."
+          ]
+        : [
+            "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다.",
+            "큰 의미를 덧붙이기보다 움직임의 순서와 잠시 멈춘 순간처럼 수업에서 확인한 사실을 담백하게 정리했습니다."
+          ]
+      const additions = rawAdditions.map((addition) => sanitizeLocalFragment(addition, input.avoid)).filter(Boolean)
+      const addition = additions.find((candidate) => !current.includes(candidate))
+      if (!addition) throw new Error("이전과 다른 안전한 문구를 만들 수 없어요.")
       const rewritten = `${current}\n\n${addition}`
       if (!isSafePublishableCopy([rewritten], input.avoid)) {
         throw new Error("금지 표현을 제외하고 안전한 네이버 본문을 재작성할 수 없어요.")
@@ -221,9 +237,44 @@ export class LocalAIProvider implements AIProvider {
       return { section: input.section, text: rewritten }
     }
     const memoFocus = detectBodyFocus(input.memo).join("과 ")
-    const toneLead = input.instruction.includes("감성 줄이기") ? "담백하게 정리하면" : "조금 더 자세히 돌아보면"
-    const text = sanitizeLocalFragment(`${toneLead}, ${memoFocus}의 감각과 호흡에 집중한 수련이었습니다.`, input.avoid)
-    if (!text) throw new Error("금지 표현을 제외하고 안전한 문장을 재작성할 수 없어요.")
+    const focusTags = hashtags(detectBodyFocus(input.memo), input.avoid)
+    let candidates: string[]
+    if (input.channel === "naver" && input.section === "title") {
+      candidates = [
+        `${memoFocus}, 호흡으로 돌아본 오늘의 수련`,
+        `A.P YOGA에서 천천히 살핀 ${memoFocus}`,
+        `${memoFocus}의 감각을 기록한 요가 시간`
+      ]
+    } else if (input.channel === "naver" && input.section === "intro") {
+      candidates = [
+        `담백하게 정리하면, 오늘은 ${memoFocus}의 움직임과 호흡을 차례로 살폈습니다.`,
+        `${memoFocus}에 주의를 기울이며 차분하게 수련을 시작했습니다.`,
+        `오늘의 몸 상태를 확인한 뒤 ${memoFocus}의 감각을 천천히 따라갔습니다.`
+      ]
+    } else if (input.channel === "instagram" && input.section === "hook") {
+      candidates = [
+        `${memoFocus}의 감각에서 시작한 오늘`,
+        "호흡을 따라 천천히 돌아온 시간",
+        `오늘은 ${memoFocus}에 주의를 기울였어요`
+      ]
+    } else if (input.channel === "instagram" && input.section === "short") {
+      candidates = [
+        `${memoFocus}와 호흡을 차분히 살핀 오늘의 수련.`,
+        "서두르지 않고 몸의 신호를 따라간 시간.",
+        `오늘의 ${memoFocus} 감각을 짧게 기록해요.`
+      ]
+    } else if (input.channel === "instagram" && input.section === "hashtags") {
+      candidates = [
+        focusTags.join(" "),
+        [...focusTags.slice(1), focusTags[0]].filter(Boolean).join(" ")
+      ]
+    } else {
+      candidates = [
+        `${memoFocus}의 감각을 따라 천천히 움직이며 호흡의 변화를 살폈습니다.`,
+        `오늘은 ${memoFocus}에 주의를 기울이고 각자의 편안한 속도로 수련을 이어갔습니다.`
+      ]
+    }
+    const text = differentSafeText(candidates, input.currentText, input.avoid)
     return {
       section: input.section,
       text

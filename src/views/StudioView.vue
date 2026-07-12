@@ -22,7 +22,9 @@ const store = useStudioStore()
 const error = ref<string | null>(null)
 const activeMaskIndex = ref(0)
 const copyFallback = ref<string | null>(null)
-const copyStatus = ref<string | null>(null)
+const toastMessage = ref<string | null>(null)
+const toastId = ref(0)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 const stopAutosave = useAutosave(store)
 
 const readyImages = computed(() => store.draft?.images.filter((image) => image.status === "ready") ?? [])
@@ -36,12 +38,28 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(stopAutosave)
+onUnmounted(() => {
+  stopAutosave()
+  if (toastTimer) clearTimeout(toastTimer)
+})
 
-async function run(action: () => Promise<unknown>) {
+function showToast(message: string) {
+  toastMessage.value = message
+  toastId.value += 1
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMessage.value = null }, 2400)
+}
+
+async function run(action: () => Promise<unknown>, successMessage?: string) {
   error.value = null
-  try { await action() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : "요청을 처리하지 못했어요." }
+  try {
+    await action()
+    if (successMessage) showToast(successMessage)
+    return true
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "요청을 처리하지 못했어요."
+    return false
+  }
 }
 
 function updateMasks(masks: FaceMask[]) {
@@ -67,19 +85,50 @@ async function submitMemo(value: Parameters<typeof store.updateMemo>[0]) {
 }
 
 async function generateChannels() {
-  await run(() => store.generateAll())
+  const completed = await run(() => store.generateAll())
+  if (!completed) return
+  const successCount = [store.draft?.naver.status, store.draft?.instagram.status]
+    .filter((status) => status === "success").length
+  if (successCount === 2) showToast("두 채널 글을 생성했어요")
+  else if (successCount === 1) showToast("생성 가능한 한 채널 결과를 준비했어요")
+  else error.value = "두 채널 글 생성에 실패했어요. 채널별 다시 생성을 시도해 주세요."
 }
 
 async function retryChannel(channel: "naver" | "instagram") {
-  await run(() => store.retryChannel(channel))
+  const completed = await run(() => store.retryChannel(channel))
+  if (!completed) return
+  const result = channel === "naver" ? store.draft?.naver : store.draft?.instagram
+  if (result?.status === "success") showToast(`${channel === "naver" ? "네이버" : "인스타그램"} 글을 다시 생성했어요`)
+  else if (result?.error) error.value = result.error
 }
 
 async function copyResult(request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }) {
   await run(async () => {
     const result = await store.copy(request)
     copyFallback.value = result.fallback
-    copyStatus.value = result.fallback ? "직접 복사할 글을 열었어요" : "클립보드에 복사했어요"
+    showToast(result.fallback ? "직접 복사할 글을 열었어요" : "클립보드에 복사했어요")
   })
+}
+
+async function rewriteResult(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
+  await run(() => store.rewrite(request), "문구를 변경했어요")
+}
+
+async function selectResultOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
+  const message = request.kind === "title"
+    ? "제목 옵션을 변경했어요"
+    : request.kind === "intro"
+      ? "도입부 옵션을 변경했어요"
+      : "첫 문장 옵션을 변경했어요"
+  await run(() => store.selectOption(request), message)
+}
+
+async function editResult(request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }) {
+  await run(() => store.editResult(request), "수정 내용을 저장했어요")
+}
+
+async function finalizeResult() {
+  await run(() => store.finalize(), "작성 이력에 저장했어요")
 }
 </script>
 
@@ -154,12 +203,13 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
         :instagram="store.draft.instagram"
         :review="store.draft.review"
         :copy-fallback="copyFallback"
-        :copy-status="copyStatus"
         @retry-channel="retryChannel"
-        @rewrite="run(() => store.rewrite($event))"
-        @select-option="run(() => store.selectOption($event))"
+        @rewrite="rewriteResult"
+        @select-option="selectResultOption"
+        @edit="editResult"
+        @notify="showToast"
         @copy="copyResult"
-        @finalize="run(() => store.finalize())"
+        @finalize="finalizeResult"
       />
 
       <section v-else class="empty-row">다음 콘텐츠 단계가 준비되었습니다.</section>
@@ -179,6 +229,9 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
         <template v-else>메모 작성하기</template>
       </button>
     </BottomActionBar>
+    <Transition name="toast">
+      <p v-if="toastMessage" :key="toastId" class="action-toast" role="status" aria-live="polite">{{ toastMessage }}</p>
+    </Transition>
   </main>
   <main v-else class="app-page"><div class="app-content"><p class="empty-row">작성 중인 글을 불러오는 중입니다.</p></div></main>
 </template>

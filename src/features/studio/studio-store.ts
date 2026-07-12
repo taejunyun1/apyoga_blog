@@ -52,6 +52,22 @@ export function resetStudioServices() {
   services = defaultServices()
 }
 
+function publishableText(draft: StudioDraft): string {
+  const naver = draft.naver.data
+  const instagram = draft.instagram.data
+  return [
+    ...(naver?.titles ?? []),
+    ...(naver?.introOptions ?? []),
+    naver?.body,
+    naver?.classInfo,
+    ...(naver?.hashtags ?? []),
+    ...(instagram?.hookOptions ?? []),
+    instagram?.captionLong,
+    instagram?.captionShort,
+    ...(instagram?.hashtags ?? [])
+  ].filter(Boolean).join("\n")
+}
+
 export const useStudioStore = defineStore("studio", () => {
   const draft = ref<StudioDraft | null>(null)
   const drafts = ref<StudioDraft[]>([])
@@ -61,6 +77,13 @@ export const useStudioStore = defineStore("studio", () => {
   const busy = ref(false)
   const faceDetectionMessage = ref<string | null>(null)
   const transientFiles = new Map<string, File>()
+
+  async function refreshReview(current: StudioDraft) {
+    current.review = await services.ai.review({
+      text: publishableText(current),
+      maskedFacesConfirmed: current.images.every((image) => Boolean(image.maskConfirmedAt))
+    })
+  }
 
   async function saveNow() {
     if (!draft.value) return
@@ -334,8 +357,7 @@ export const useStudioStore = defineStore("studio", () => {
       ? { status: "success", data: instagram.value, error: null }
       : { status: "error", data: current.instagram.data, error: errorMessage(instagram.reason) }
     current.step = "results"
-    const reviewText = [current.naver.data?.body, current.instagram.data?.captionLong].filter(Boolean).join("\n")
-    current.review = await services.ai.review({ text: reviewText, maskedFacesConfirmed: current.images.every((image) => Boolean(image.maskConfirmedAt)) })
+    await refreshReview(current)
     current.updatedAt = new Date().toISOString()
     await saveNow()
   }
@@ -353,6 +375,7 @@ export const useStudioStore = defineStore("studio", () => {
       if (channel === "naver") current.naver = { status: "error", data: current.naver.data, error: errorMessage(error) }
       else current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(error) }
     }
+    await refreshReview(current)
     await saveNow()
   }
 
@@ -367,6 +390,10 @@ export const useStudioStore = defineStore("studio", () => {
       tone: request.channel === "naver" ? draft.value.naverTone : draft.value.instagramTone
     }
     const rewritten = await services.ai.rewriteSection(input)
+
+    if (rewritten.text.trim() === currentText.trim()) {
+      throw new Error("이전과 다른 문구를 만들지 못했어요. 다시 시도해 주세요.")
+    }
 
     if (request.channel === "naver" && request.section === "body" && rewritten.text.trim().length < 500) {
       throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
@@ -387,6 +414,30 @@ export const useStudioStore = defineStore("studio", () => {
       else result.captionLong = rewritten.text
     }
 
+    await refreshReview(draft.value)
+    draft.value.updatedAt = new Date().toISOString()
+    await saveNow()
+  }
+
+  async function editResult(request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }) {
+    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
+    const text = request.text.trim()
+    if (!text) throw new Error("수정할 문구를 입력해 주세요.")
+    if (request.channel === "naver") {
+      if (request.section !== "body") throw new Error("수정할 네이버 영역을 확인해 주세요.")
+      if (text.length < 500) throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
+      const result = draft.value.naver.data
+      if (!result) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
+      result.body = text
+    } else {
+      const result = draft.value.instagram.data
+      if (!result) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
+      if (request.section === "caption") result.captionLong = text
+      else if (request.section === "short") result.captionShort = text
+      else throw new Error("수정할 인스타그램 영역을 확인해 주세요.")
+    }
+
+    await refreshReview(draft.value)
     draft.value.updatedAt = new Date().toISOString()
     await saveNow()
   }
@@ -430,7 +481,7 @@ export const useStudioStore = defineStore("studio", () => {
     draft, drafts, history, saveStatus, lastSavedAt, busy, faceDetectionMessage,
     create, loadHome, load, saveNow, addFiles, beginMasking, retryImage, updateMasks, confirmMasks,
     reorder, chooseCover, removeImage, updateMemo, analyze, updateBrief, confirmBrief,
-    generateAll, retryChannel, rewrite, selectOption, copy, finalize, discard
+    generateAll, retryChannel, rewrite, editResult, selectOption, copy, finalize, discard
   }
 })
 

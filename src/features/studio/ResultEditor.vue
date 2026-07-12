@@ -11,26 +11,32 @@ defineProps<{
   instagram: ChannelResult<InstagramOutput>
   review: ReviewOutput
   copyFallback: string | null
-  copyStatus?: string | null
 }>()
 const emit = defineEmits<{
   "retry-channel": [channel: "naver" | "instagram"]
   rewrite: [request: { channel: "naver" | "instagram"; section: string; instruction: string }]
   copy: [request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }]
   "select-option": [request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }]
+  edit: [request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }]
+  notify: [message: string]
   finalize: []
 }>()
 const active = ref<"naver" | "instagram">("naver")
-const selectedNaverTitle = ref(0)
-const selectedNaverIntro = ref(0)
-const selectedInstagramHook = ref(0)
+
+function selectChannel(channel: "naver" | "instagram") {
+  active.value = channel
+  emit("notify", channel === "naver" ? "네이버 결과를 열었어요" : "인스타그램 결과를 열었어요")
+}
+
+function editText(channel: "naver" | "instagram", section: "body" | "caption" | "short", event: Event) {
+  emit("edit", { channel, section, text: (event.currentTarget as HTMLTextAreaElement).value })
+}
 </script>
 
 <template>
   <section class="result-editor">
     <header class="section-heading-row"><div><h2 class="screen-heading">결과 확인 및 편집</h2><p>생성된 초안입니다. 게시 전에 내용을 직접 확인해 주세요.</p></div></header>
-    <ChannelTabs v-model="active" />
-    <p v-if="copyStatus" class="copy-status" role="status" aria-live="polite">{{ copyStatus }}</p>
+    <ChannelTabs :model-value="active" @update:model-value="selectChannel" />
 
     <div v-if="active === 'naver'" role="tabpanel" class="channel-panel">
       <template v-if="naver.status === 'success' && naver.data">
@@ -38,9 +44,9 @@ const selectedInstagramHook = ref(0)
         <p v-if="naver.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
           AI 연결이 불안정해 로컬 초안을 사용했어요.
         </p>
-        <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input v-model="selectedNaverTitle" type="radio" name="naver-title" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
-        <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input v-model="selectedNaverIntro" type="radio" name="naver-intro" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
-        <label class="field-label">본문 편집<textarea v-model="naver.data.body" rows="12" /></label>
+        <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input type="radio" name="naver-title" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
+        <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input type="radio" name="naver-intro" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
+        <label class="field-label">본문 편집<textarea :value="naver.data.body" rows="12" @change="editText('naver', 'body', $event)" /></label>
         <ul v-if="naver.data.imagePlacements.length" class="placement-list"><li v-for="placement in naver.data.imagePlacements" :key="placement.imageId">문단 {{ placement.afterParagraph }} 뒤 · {{ placement.caption }}</li></ul>
         <p class="class-info">{{ naver.data.classInfo }}</p>
         <p class="hashtag-line">{{ naver.data.hashtags.join(' ') }}</p>
@@ -58,9 +64,9 @@ const selectedInstagramHook = ref(0)
         <p v-if="instagram.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
           AI 연결이 불안정해 로컬 초안을 사용했어요.
         </p>
-        <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input v-model="selectedInstagramHook" type="radio" name="instagram-hook" :value="index" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
-        <label class="field-label">기본형 캡션<textarea v-model="instagram.data.captionLong" rows="9" /></label>
-        <label class="field-label">짧은 캡션<textarea v-model="instagram.data.captionShort" rows="3" /></label>
+        <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input type="radio" name="instagram-hook" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
+        <label class="field-label">기본형 캡션<textarea :value="instagram.data.captionLong" rows="9" @change="editText('instagram', 'caption', $event)" /></label>
+        <label class="field-label">짧은 캡션<textarea :value="instagram.data.captionShort" rows="3" @change="editText('instagram', 'short', $event)" /></label>
         <p class="hashtag-line">{{ instagram.data.hashtags.join(' ') }}</p>
         <RewriteActionSheet channel="instagram" @rewrite="emit('rewrite', $event)" />
         <PublishChecklist :review="review" />

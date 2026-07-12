@@ -4,6 +4,7 @@ import path from "node:path"
 const fixturePhoto = path.resolve("public/icons/app-icon-512.png")
 
 test("creates and restores a two-channel yoga post", async ({ page }, testInfo) => {
+  await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
   await page.goto("/")
 
   await page.getByRole("button", { name: "새 글 만들기" }).click()
@@ -30,8 +31,25 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   await expect(page.getByRole("tab", { name: "네이버 블로그" })).toBeVisible()
   await expect(page.getByRole("tab", { name: "인스타그램" })).toBeVisible()
   await expect(page.getByText("네이버 글이 준비됐어요")).toBeVisible()
+  await expect(page.getByText("두 채널 글을 생성했어요")).toBeVisible()
+
+  const naverTitles = page.locator('input[name="naver-title"]')
+  await expect(naverTitles).toHaveCount(3)
+  await naverTitles.nth(1).check()
+  await expect(page.getByText("제목 옵션을 변경했어요")).toBeVisible()
+  await expect(naverTitles.nth(0)).toBeChecked()
+
+  await page.getByRole("button", { name: "도입부 감성 줄이기" }).click()
+  await expect(page.getByText("문구를 변경했어요")).toBeVisible()
   await page.getByRole("tab", { name: "인스타그램" }).click()
   await expect(page.getByText("인스타그램 글이 준비됐어요")).toBeVisible()
+  await expect(page.getByText("인스타그램 결과를 열었어요")).toBeVisible()
+
+  if (testInfo.project.name === "mobile-chromium") {
+    await expect(page.getByLabel("기본형 캡션")).toHaveCSS("font-size", "16px")
+    await page.setViewportSize({ width: 844, height: 390 })
+    await expect(page.getByLabel("기본형 캡션")).toHaveCSS("font-size", "16px")
+  }
 
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
   expect(horizontalOverflow).toBe(false)

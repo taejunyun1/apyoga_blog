@@ -180,6 +180,44 @@ describe("LocalAIProvider", () => {
     expect(rewritten.text).not.toContain("사진")
   })
 
+  it("returns a visibly different sentence on repeated option rewrites", async () => {
+    const provider = new LocalAIProvider()
+    const request = {
+      channel: "naver" as const,
+      section: "title",
+      currentText: "오늘의 요가 기록",
+      instruction: "최근 글과 다르게",
+      memo: analyzeInput.memo,
+      avoid: analyzeInput.avoid,
+      tone: "plain" as const
+    }
+
+    const first = await provider.rewriteSection(request)
+    const second = await provider.rewriteSection({ ...request, currentText: first.text })
+
+    expect(first.text).not.toBe(request.currentText)
+    expect(second.text).not.toBe(first.text)
+  })
+
+  it("rewrites Instagram hashtags to a different non-empty hashtag set", async () => {
+    const provider = new LocalAIProvider()
+    const currentText = "#에이피요가 #요가수련"
+
+    const rewritten = await provider.rewriteSection({
+      channel: "instagram",
+      section: "hashtags",
+      currentText,
+      instruction: "해시태그 변경",
+      memo: analyzeInput.memo,
+      avoid: analyzeInput.avoid,
+      tone: "plain"
+    })
+
+    expect(rewritten.text).not.toBe(currentText)
+    expect(rewritten.text.split(/\s+/).length).toBeGreaterThan(1)
+    expect(rewritten.text.split(/\s+/).every((value) => value.startsWith("#"))).toBe(true)
+  })
+
   it.each(["철학 줄이기", "사진 설명 늘리기"])("preserves a complete Naver body for the %s rewrite", async (instruction) => {
     const provider = new LocalAIProvider()
     const brief = await provider.analyzeImages(analyzeInput)
@@ -200,6 +238,25 @@ describe("LocalAIProvider", () => {
     expect(rewritten.text).not.toMatch(/(.)\1{20,}/u)
     const paragraphs = rewritten.text.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean)
     expect(new Set(paragraphs).size).toBe(paragraphs.length)
+  })
+
+  it("stops a repeated body rewrite instead of reversing the whole article", async () => {
+    const provider = new LocalAIProvider()
+    const brief = await provider.analyzeImages(analyzeInput)
+    const naver = await provider.generateNaver({ ...analyzeInput, brief })
+    const request = {
+      channel: "naver" as const,
+      section: "body",
+      instruction: "사진 설명 늘리기",
+      memo: analyzeInput.memo,
+      avoid: analyzeInput.avoid,
+      tone: "plain" as const
+    }
+    const first = await provider.rewriteSection({ ...request, currentText: naver.body })
+    const second = await provider.rewriteSection({ ...request, currentText: first.text })
+
+    await expect(provider.rewriteSection({ ...request, currentText: second.text }))
+      .rejects.toThrow("다른 안전한 문구")
   })
 
   it("does not reintroduce a forbidden expression during a Naver body rewrite", async () => {

@@ -50,6 +50,7 @@ async function seedPartialSuccess(page: Page) {
   }
 
   await page.goto("/")
+  await expect(page.getByText("저장된 임시 글이 없습니다.")).toBeVisible()
   await page.evaluate(async ({ id, value, updatedAt }) => {
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.open("ap-yoga-content-studio")
@@ -66,6 +67,7 @@ async function seedPartialSuccess(page: Page) {
 }
 
 test("keeps a successful channel and retries only the failed channel", async ({ page }) => {
+  await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
   await seedPartialSuccess(page)
   await page.goto(`/studio/${draftId}`)
 

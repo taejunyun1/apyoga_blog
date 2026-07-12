@@ -107,6 +107,65 @@ describe("studio workflow store", () => {
     expect(store.draft?.naver.data?.introOptions[0]).toContain("호흡")
   })
 
+  it("rejects a rewrite that returns the same visible text", async () => {
+    const repository = new InMemoryRepository()
+    class UnchangedRewriteProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: input.currentText }
+      }
+    }
+    configureStudioServices({ repository, ai: new UnchangedRewriteProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("다른 문구")
+  })
+
+  it("validates direct result edits, recomputes review, and persists before resolving", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const originalBody = store.draft.naver.data?.body
+
+    await expect(store.editResult({ channel: "naver", section: "body", text: "너무 짧은 본문" }))
+      .rejects.toThrow("500자")
+    expect(store.draft.naver.data?.body).toBe(originalBody)
+
+    const saveCalls = repository.saveCalls
+    await store.editResult({
+      channel: "instagram",
+      section: "caption",
+      text: "이 수련으로 통증이 완치됩니다."
+    })
+
+    expect(store.draft.instagram.data?.captionLong).toContain("완치")
+    expect(store.draft.review?.passed).toBe(false)
+    expect(store.draft.review?.medicalClaims.length).toBeGreaterThan(0)
+    expect(repository.saveCalls).toBe(saveCalls + 1)
+  })
+
+  it("includes the directly edited short Instagram caption in the safety review", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    await store.editResult({
+      channel: "instagram",
+      section: "short",
+      text: "이 자세로 통증이 완치됩니다."
+    })
+
+    expect(store.draft.instagram.data?.captionShort).toContain("완치")
+    expect(store.draft.review?.passed).toBe(false)
+    expect(store.draft.review?.medicalClaims.length).toBeGreaterThan(0)
+  })
+
   it.each(["철학 줄이기", "사진 설명 늘리기"])("keeps the prior Naver body when the %s rewrite is shorter than 500 characters", async (instruction) => {
     const repository = new InMemoryRepository()
     class ShortRewriteProvider extends LocalAIProvider {
