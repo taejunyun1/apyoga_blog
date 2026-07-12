@@ -66,7 +66,7 @@ Configure these values as Cloudflare secrets:
 
 The plaintext password is used only during one-time local hash generation and interactive authentication testing. It is never committed, written to a project file, printed, or passed as a command-line argument.
 
-Password verification uses PBKDF2-HMAC-SHA-256 with a unique 128-bit salt, 600,000 iterations, a 256-bit derived key, and a timing-safe byte comparison. Session tokens use an HMAC-SHA-256 signature over a versioned payload containing the account subject, issue time, and expiration time.
+Password verification uses PBKDF2-HMAC-SHA-256 with a unique 128-bit salt, 100,000 iterations (the maximum supported by the deployed Cloudflare Pages runtime), a 256-bit derived key, and a timing-safe byte comparison. Session tokens use an HMAC-SHA-256 signature over a versioned payload containing the account subject, issue time, and expiration time.
 
 ### Session cookie
 

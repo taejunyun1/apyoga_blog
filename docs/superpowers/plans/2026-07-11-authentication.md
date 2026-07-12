@@ -12,7 +12,7 @@
 
 - Use one deployment-configured account; do not add registration, recovery, roles, or multiple users.
 - Keep sessions for exactly 30 days (`Max-Age=2592000`).
-- Use PBKDF2-HMAC-SHA-256 with a unique 128-bit salt, 600,000 iterations, and a 256-bit derived key.
+- Use PBKDF2-HMAC-SHA-256 with a unique 128-bit salt, 100,000 iterations, and a 256-bit derived key.
 - Use an HMAC-SHA-256 signed, versioned session payload.
 - Set the session cookie to `HttpOnly; Secure; SameSite=Strict; Path=/`.
 - Keep `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, and `SESSION_SECRET` in Cloudflare Pages secrets only.
@@ -149,7 +149,7 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const [algorithm, iterationsText, saltText, hashText] = encoded.split("$")
   const iterations = Number(iterationsText)
-  if (algorithm !== "pbkdf2-sha256" || iterations !== 600_000 || password.length > 256) return false
+  if (algorithm !== "pbkdf2-sha256" || iterations !== 100_000 || password.length > 256) return false
   try {
     const salt = decode(saltText)
     const expected = decode(hashText)
@@ -198,7 +198,7 @@ Add a focused Functions configuration so Pages code type-checks independently fr
 }
 ```
 
-- [ ] **Step 4: Replace the one-iteration fixture with a deterministic 600,000-iteration test fixture and run GREEN**
+- [ ] **Step 4: Replace the one-iteration fixture with a deterministic 100,000-iteration test fixture and run GREEN**
 
 Generate the fixture inside the test with Web Crypto so no production credential appears:
 
@@ -206,9 +206,9 @@ Generate the fixture inside the test with Web Crypto so no production credential
 async function testRecord(password: string): Promise<string> {
   const salt = new Uint8Array(16)
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"])
-  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 600_000 }, key, 256))
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 100_000 }, key, 256))
   const b64 = (value: Uint8Array) => Buffer.from(value).toString("base64url")
-  return `pbkdf2-sha256$600000$${b64(salt)}$${b64(bits)}`
+  return `pbkdf2-sha256$100000$${b64(salt)}$${b64(bits)}`
 }
 ```
 
@@ -943,8 +943,8 @@ The script must:
 2. prompt visibly for the username;
 3. read the password in raw mode while rendering `*` instead of characters;
 4. generate 16 random salt bytes;
-5. derive 32 bytes with `pbkdf2Sync(password, salt, 600_000, 32, "sha256")`;
-6. serialize `pbkdf2-sha256$600000$<salt-base64url>$<hash-base64url>`;
+5. derive 32 bytes with `pbkdf2Sync(password, salt, 100_000, 32, "sha256")`;
+6. serialize `pbkdf2-sha256$100000$<salt-base64url>$<hash-base64url>`;
 7. generate a 32-byte base64url session secret;
 8. call Wrangler separately for `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, and `SESSION_SECRET` using `spawnSync` with the secret value plus one newline on standard input and inherited stdout/stderr;
 9. overwrite the in-memory password variable before exit;
@@ -1012,8 +1012,8 @@ const username = String(await readLine("아이디: ")).trim()
 let password = String(await readHidden("비밀번호: "))
 if (!username || !password) throw new Error("아이디와 비밀번호를 입력해 주세요.")
 const salt = randomBytes(16)
-const derived = pbkdf2Sync(password, salt, 600_000, 32, "sha256")
-const passwordHash = `pbkdf2-sha256$600000$${salt.toString("base64url")}$${derived.toString("base64url")}`
+const derived = pbkdf2Sync(password, salt, 100_000, 32, "sha256")
+const passwordHash = `pbkdf2-sha256$100000$${salt.toString("base64url")}$${derived.toString("base64url")}`
 const sessionSecret = randomBytes(32).toString("base64url")
 putSecret("AUTH_USERNAME", username)
 putSecret("AUTH_PASSWORD_HASH", passwordHash)
@@ -1142,7 +1142,7 @@ Create the temporary fake environment with a deterministic test-only PBKDF2 reco
 
 ```bash
 mkdir -p /tmp/ap-yoga-auth-qa
-node --input-type=module -e 'import { pbkdf2Sync } from "node:crypto"; import { writeFileSync } from "node:fs"; const salt = Buffer.alloc(16); const hash = pbkdf2Sync("test-password", salt, 600000, 32, "sha256"); const record = `pbkdf2-sha256$600000$${salt.toString("base64url")}$${hash.toString("base64url")}`; writeFileSync("/tmp/ap-yoga-auth-qa/.dev.vars", `AUTH_USERNAME=studio-user\nAUTH_PASSWORD_HASH=${record}\nSESSION_SECRET=${Buffer.alloc(32).toString("base64url")}\n`, { mode: 0o600 })'
+node --input-type=module -e 'import { pbkdf2Sync } from "node:crypto"; import { writeFileSync } from "node:fs"; const salt = Buffer.alloc(16); const hash = pbkdf2Sync("test-password", salt, 100000, 32, "sha256"); const record = `pbkdf2-sha256$100000$${salt.toString("base64url")}$${hash.toString("base64url")}`; writeFileSync("/tmp/ap-yoga-auth-qa/.dev.vars", `AUTH_USERNAME=studio-user\nAUTH_PASSWORD_HASH=${record}\nSESSION_SECRET=${Buffer.alloc(32).toString("base64url")}\n`, { mode: 0o600 })'
 ```
 
 Pass that file to the local Pages server:

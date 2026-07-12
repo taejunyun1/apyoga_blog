@@ -32,7 +32,7 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const [algorithm, iterationsText, saltText, hashText] = encoded.split("$")
   const iterations = Number(iterationsText)
-  if (algorithm !== "pbkdf2-sha256" || iterations !== 600_000 || password.length > 256) return false
+  if (algorithm !== "pbkdf2-sha256" || iterations !== 100_000 || password.length > 256) return false
   try {
     const salt = decode(saltText)
     const expected = decode(hashText)

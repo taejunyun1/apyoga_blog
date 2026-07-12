@@ -79,8 +79,8 @@ try {
   if (password.length > 256) throw new Error("비밀번호는 256자 이하로 입력해 주세요.")
 
   const salt = randomBytes(16)
-  const derived = pbkdf2Sync(password, salt, 600_000, 32, "sha256")
-  const passwordHash = `pbkdf2-sha256$600000$${salt.toString("base64url")}$${derived.toString("base64url")}`
+  const derived = pbkdf2Sync(password, salt, 100_000, 32, "sha256")
+  const passwordHash = `pbkdf2-sha256$100000$${salt.toString("base64url")}$${derived.toString("base64url")}`
   const sessionSecret = randomBytes(32).toString("base64url")
 
   putSecret("AUTH_USERNAME", username)
