@@ -75,6 +75,20 @@ function validatePasswordBody(body: unknown): PasswordFields {
   return fields as unknown as PasswordFields
 }
 
+function clearParsedPasswordFields(body: unknown): void {
+  if (typeof body !== "object" || body === null) return
+  const fields = body as Record<string, unknown>
+  for (const key of ["currentPassword", "newPassword"]) {
+    try {
+      if (!Object.prototype.hasOwnProperty.call(fields, key)) continue
+      const password = fields[key]
+      if (typeof password === "string") fields[key] = "\0".repeat(password.length)
+    } catch {
+      // Cleanup is best-effort and must not replace the endpoint response.
+    }
+  }
+}
+
 export async function handlePasswordChange(
   request: Request,
   env: AuthEnv,
@@ -83,12 +97,14 @@ export async function handlePasswordChange(
   if (!isSameOriginJson(request)) return json(INVALID_REQUEST, 403)
   if (!env.AUTH_RATE_LIMIT || !env.SESSION_SECRET || !env.AUTH_DB) return json(GENERIC_FAILURE, 500)
 
-  let fields: PasswordFields | undefined
+  let body: unknown
   let currentPassword = ""
   let newPassword = ""
   try {
+    let fields: PasswordFields
     try {
-      fields = validatePasswordBody(await readBoundedJson(request, MAX_BODY_BYTES))
+      body = await readBoundedJson(request, MAX_BODY_BYTES)
+      fields = validatePasswordBody(body)
     } catch (error) {
       if (error instanceof PasswordBodyTooLargeError) return json(INVALID_REQUEST, 413)
       if (error instanceof SyntaxError || error instanceof InvalidPasswordBodyError) {
@@ -131,10 +147,7 @@ export async function handlePasswordChange(
       return json(GENERIC_FAILURE, 503)
     }
   } finally {
-    if (fields) {
-      fields.currentPassword = "\0".repeat(fields.currentPassword.length)
-      fields.newPassword = "\0".repeat(fields.newPassword.length)
-    }
+    clearParsedPasswordFields(body)
     currentPassword = "\0".repeat(currentPassword.length)
     newPassword = "\0".repeat(newPassword.length)
   }

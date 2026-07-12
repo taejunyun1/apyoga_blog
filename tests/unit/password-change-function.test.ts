@@ -162,6 +162,29 @@ describe("authenticated password-change Function", () => {
     })
   })
 
+  it("clears string password fields when the parsed object fails exact-key validation", async () => {
+    const fields = {
+      currentPassword: "test-password",
+      newPassword: "new-password-123",
+      extra: true,
+    }
+    const request = new Request("https://studio.example/api/auth/password", {
+      method: "POST",
+      headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
+    })
+    Object.defineProperty(request, "json", { value: async () => fields })
+    const { env } = makeEnv()
+
+    const response = await handlePasswordChange(request, env, nowSeconds)
+
+    await expectFailure(response, 400)
+    expect(fields).toEqual({
+      currentPassword: "\0".repeat("test-password".length),
+      newPassword: "\0".repeat("new-password-123".length),
+      extra: true,
+    })
+  })
+
   it("exposes the Pages POST handler", async () => {
     const { env } = makeEnv()
     const response = await onRequestPost({
