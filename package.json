@@ -13,6 +13,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:auth": "PLAYWRIGHT_AUTH=1 playwright test",
     "typecheck": "vue-tsc --noEmit",
     "typecheck:functions": "tsc -p tsconfig.functions.json --noEmit",
     "icons": "node scripts/generate-icons.mjs",

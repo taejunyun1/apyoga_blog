@@ -42,6 +42,14 @@ npm run preview
 
 E2E는 Chromium의 `390×844` 모바일 뷰포트와 `1280×900` 데스크톱 뷰포트에서 전체 작성·복원 흐름과 부분 성공 재시도를 확인합니다.
 
+기본 `npm run test:e2e`는 로컬 Vite 서버에서 인증이 필요 없는 흐름만 실행합니다. 인증 E2E는 Pages Functions를 제공하는 별도 테스트 서버를 준비하고, 프로덕션 자격 증명이 아닌 일회용 가짜 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET`과 테스트용 KV binding만 설정한 뒤 실행합니다. 외부 서버 주소는 셸 환경에서 주입하고 저장소나 명령 기록에 secret 값을 넣지 마세요.
+
+```bash
+PLAYWRIGHT_BASE_URL="$AUTH_TEST_BASE_URL" npm run test:e2e:auth
+```
+
+`test:e2e:auth`는 `PLAYWRIGHT_AUTH=1` 모드를 사용해 `auth-flow.spec.ts`만 두 뷰포트에서 실행합니다. `PLAYWRIGHT_BASE_URL`을 생략하면 Functions가 없는 Vite 서버가 선택되므로 인증 스위트에는 반드시 외부 테스트 URL을 제공해야 합니다.
+
 ## 로컬 데이터 초기화
 
 모든 임시 글과 편집 사진은 브라우저의 `ap-yoga-content-studio` IndexedDB에 저장됩니다. 초기화하려면 브라우저 개발자 도구의 Application/Storage에서 해당 사이트의 IndexedDB를 삭제하거나 사이트 데이터 전체 지우기를 실행한 뒤 앱을 새로고침하세요.

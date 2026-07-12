@@ -1,9 +1,12 @@
 import { defineConfig, devices } from "@playwright/test"
 
 const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL
+const authSuite = process.env.PLAYWRIGHT_AUTH === "1"
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  testMatch: authSuite ? "**/auth-flow.spec.ts" : undefined,
+  testIgnore: authSuite ? undefined : "**/auth-flow.spec.ts",
   fullyParallel: false,
   workers: 1,
   retries: 0,
