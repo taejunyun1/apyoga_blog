@@ -363,9 +363,14 @@ export const useStudioStore = defineStore("studio", () => {
       ...request,
       currentText,
       memo: draft.value.sourceMemo,
+      avoid: draft.value.avoid,
       tone: request.channel === "naver" ? draft.value.naverTone : draft.value.instagramTone
     }
     const rewritten = await services.ai.rewriteSection(input)
+
+    if (request.channel === "naver" && request.section === "body" && rewritten.text.trim().length < 500) {
+      throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
+    }
 
     if (request.channel === "naver") {
       const result = draft.value.naver.data

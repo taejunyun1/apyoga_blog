@@ -31,6 +31,13 @@ function expectEnabledControl(label: string) {
 }
 
 describe("ResultEditor", () => {
+  it("describes generated drafts without claiming every result is local demo output", () => {
+    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null } })
+
+    expect(screen.getByText(/생성된 초안/)).toBeTruthy()
+    expect(screen.queryByText(/로컬 데모 AI/)).toBeNull()
+  })
+
   it("keeps Naver visible and retries only failed Instagram", async () => {
     const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
 

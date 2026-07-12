@@ -50,34 +50,20 @@ describe("LocalAIProvider", () => {
     expect(naver.body).not.toContain("과장")
   })
 
-  it("reports forbidden Naver copy outside the final body and checks the delivered body for the required phrase", async () => {
+  it("rejects contradictory required and forbidden Naver copy instead of publishing either constraint", async () => {
     const provider = new LocalAIProvider()
     const input = { ...analyzeInput, mustInclude: "치료", avoid: "치료" }
     const brief = await provider.analyzeImages(input)
 
-    const naver = await provider.generateNaver({ ...input, brief })
-
-    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
-    expect(naver.body).not.toContain("치료")
-    expect([...naver.titles, ...naver.introOptions].join("\n")).toContain("치료")
-    expect(naver.qualityChecks).toEqual({
-      avoidedExpressionRemoved: false,
-      includesRequiredPhrase: false,
-    })
+    await expect(provider.generateNaver({ ...input, brief })).rejects.toThrow("필수 표현")
   })
 
-  it("keeps the final Naver body long enough when filtering removes template vocabulary", async () => {
+  it("returns a channel error instead of manufacturing length when constraints are contradictory", async () => {
     const provider = new LocalAIProvider()
     const avoid = "오늘,수련,호흡,감각,움직임,차분,몸,마음,시간,리듬,과정,기록,사진,집중,변화,확인,경험,요가"
     const brief = await provider.analyzeImages({ ...analyzeInput, avoid })
-    const naver = await provider.generateNaver({ ...analyzeInput, avoid, brief })
-    const sentences = naver.body.split(/[.!?]/).map((sentence) => sentence.trim()).filter(Boolean)
 
-    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
-    expect(new Set(sentences).size).toBe(sentences.length)
-    for (const expression of avoid.split(",")) {
-      expect(naver.body).not.toContain(expression)
-    }
+    await expect(provider.generateNaver({ ...analyzeInput, avoid, brief })).rejects.toThrow("필수 표현")
   })
 
   it("uses distinct continuation paragraphs to extend a filtered Naver body", async () => {
@@ -102,29 +88,79 @@ describe("LocalAIProvider", () => {
     expect(new Set(paragraphs).size).toBe(paragraphs.length)
   })
 
-  it("keeps Instagram forbidden-expression filtering to one pass", async () => {
+  it("rejects a required phrase that becomes forbidden after filtering", async () => {
     const provider = new LocalAIProvider()
     const input = { ...analyzeInput, mustInclude: "치과장료", avoid: "치료,과장" }
     const brief = await provider.analyzeImages(input)
-    const instagram = await provider.generateInstagram({ ...input, brief })
-
-    expect(instagram.captionLong).toContain("치료")
-    expect(instagram.captionShort).toContain("치료")
-    expect(instagram.captionLong).not.toContain("과장")
-    expect(instagram.captionShort).not.toContain("과장")
+    await expect(provider.generateInstagram({ ...input, brief })).rejects.toThrow("필수 표현")
   })
 
-  it("reports forbidden Instagram copy outside the filtered captions without inventing channel distinctness", async () => {
+  it("rejects contradictory required and forbidden Instagram copy", async () => {
     const provider = new LocalAIProvider()
     const input = { ...analyzeInput, mustInclude: "치료", avoid: "치료" }
     const brief = await provider.analyzeImages(input)
 
-    const instagram = await provider.generateInstagram({ ...input, brief })
+    await expect(provider.generateInstagram({ ...input, brief })).rejects.toThrow("필수 표현")
+  })
 
-    expect(instagram.captionLong).not.toContain("치료")
-    expect(instagram.captionShort).not.toContain("치료")
-    expect(instagram.hookOptions.join("\n")).toContain("치료")
-    expect(instagram.qualityChecks).toEqual({ avoidedExpressionRemoved: false })
+  it("removes unsafe memo and edited brief fragments from every local publishable field", async () => {
+    const provider = new LocalAIProvider()
+    const unsafe = "통증이 나아집니다"
+    const input = { ...analyzeInput, memo: `${unsafe} 어깨 수련`, mustInclude: "호흡", avoid: "" }
+    const analyzed = await provider.analyzeImages(input)
+    const brief = {
+      ...analyzed,
+      overallMood: unsafe,
+      bodyFocus: [unsafe, "어깨"],
+      userMemoSummary: unsafe,
+    }
+
+    const [naver, instagram] = await Promise.all([
+      provider.generateNaver({ ...input, brief }),
+      provider.generateInstagram({ ...input, brief }),
+    ])
+    const publishable = [
+      ...naver.titles, ...naver.introOptions, naver.body,
+      ...naver.imagePlacements.map((placement) => placement.caption), ...naver.hashtags, naver.classInfo,
+      ...instagram.hookOptions, instagram.captionLong, instagram.captionShort, ...instagram.hashtags,
+    ].join("\n")
+
+    expect(publishable).not.toContain(unsafe)
+    expect(naver.qualityChecks.avoidedExpressionRemoved).toBe(true)
+    expect(instagram.qualityChecks.avoidedExpressionRemoved).toBe(true)
+  })
+
+  it("rejects an unsafe required medical claim for both local channels", async () => {
+    const provider = new LocalAIProvider()
+    const input = { ...analyzeInput, mustInclude: "통증이 나아집니다", avoid: "" }
+    const brief = await provider.analyzeImages(input)
+
+    await expect(provider.generateNaver({ ...input, brief })).rejects.toThrow("필수 표현")
+    await expect(provider.generateInstagram({ ...input, brief })).rejects.toThrow("필수 표현")
+  })
+
+  it("never manufactures Naver length with a repeated padding glyph", async () => {
+    const provider = new LocalAIProvider()
+    const brief = await provider.analyzeImages(analyzeInput)
+    const naver = await provider.generateNaver({ ...analyzeInput, brief })
+    const paragraphs = naver.body.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean)
+    const sentences = naver.body.split(/[.!?]/).map((sentence) => sentence.trim()).filter(Boolean)
+
+    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
+    expect(naver.body).not.toMatch(/(.)\1{20,}/u)
+    expect(new Set(paragraphs).size).toBe(paragraphs.length)
+    expect(new Set(sentences).size).toBe(sentences.length)
+  })
+
+  it("returns a channel error when independently filtered paragraphs cannot reach 500 meaningful characters", async () => {
+    const provider = new LocalAIProvider()
+    const baselineBrief = await provider.analyzeImages(analyzeInput)
+    const baseline = await provider.generateNaver({ ...analyzeInput, brief: baselineBrief })
+    const avoid = [...new Set([...baseline.body].filter((character) => /[가-힣]/.test(character)))].join(",")
+    const input = { ...analyzeInput, memo: "Memo", mustInclude: "ZXQ", avoid }
+    const brief = { ...baselineBrief, bodyFocus: ["Focus"] }
+
+    await expect(provider.generateNaver({ ...input, brief })).rejects.toThrow("의미 있는 네이버 본문 500자")
   })
 
   it("rewrites only the requested section without accepting images", async () => {
@@ -135,11 +171,54 @@ describe("LocalAIProvider", () => {
       currentText: "오늘의 수련",
       instruction: "감성 줄이기",
       memo: analyzeInput.memo,
+      avoid: analyzeInput.avoid,
       tone: "plain"
     })
 
     expect(rewritten.section).toBe("intro")
     expect(rewritten.text).toContain("호흡")
+    expect(rewritten.text).not.toContain("사진")
+  })
+
+  it.each(["철학 줄이기", "사진 설명 늘리기"])("preserves a complete Naver body for the %s rewrite", async (instruction) => {
+    const provider = new LocalAIProvider()
+    const brief = await provider.analyzeImages(analyzeInput)
+    const naver = await provider.generateNaver({ ...analyzeInput, brief })
+
+    const rewritten = await provider.rewriteSection({
+      channel: "naver",
+      section: "body",
+      currentText: naver.body,
+      instruction,
+      memo: analyzeInput.memo,
+      avoid: analyzeInput.avoid,
+      tone: "plain",
+    })
+
+    expect(rewritten.text.trim().length).toBeGreaterThanOrEqual(500)
+    expect(rewritten.text).not.toBe(naver.body)
+    expect(rewritten.text).not.toMatch(/(.)\1{20,}/u)
+    const paragraphs = rewritten.text.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean)
+    expect(new Set(paragraphs).size).toBe(paragraphs.length)
+  })
+
+  it("does not reintroduce a forbidden expression during a Naver body rewrite", async () => {
+    const provider = new LocalAIProvider()
+    const input = { ...analyzeInput, avoid: "사진" }
+    const brief = await provider.analyzeImages(input)
+    const naver = await provider.generateNaver({ ...input, brief })
+
+    const rewritten = await provider.rewriteSection({
+      channel: "naver",
+      section: "body",
+      currentText: naver.body,
+      instruction: "사진 설명 늘리기",
+      memo: input.memo,
+      avoid: input.avoid,
+      tone: "plain",
+    })
+
+    expect(rewritten.text.trim().length).toBeGreaterThanOrEqual(500)
     expect(rewritten.text).not.toContain("사진")
   })
 

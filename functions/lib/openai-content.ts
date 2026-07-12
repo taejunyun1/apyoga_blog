@@ -91,6 +91,7 @@ export function validateGeneratedContent(
   input: GenerateContentInput,
 ): GeneratedContent {
   const content = channel === "naver" ? validateNaver(value) : validateInstagram(value)
+  validateImageReferences(channel, content, input)
   const mainText = channel === "naver"
     ? (content as GeneratedNaver).body
     : (content as GeneratedInstagram).captionLong
@@ -107,6 +108,38 @@ export function validateGeneratedContent(
     throw new OpenAIContentError("필수 표현이 콘텐츠에 포함되지 않았어요.", true)
   }
   return content
+}
+
+function validateImageReferences(
+  channel: ContentChannel,
+  content: GeneratedContent,
+  input: GenerateContentInput,
+): void {
+  const suppliedIds = input.brief.imageDescriptions.map((image) => image.imageId)
+  const supplied = new Set(suppliedIds)
+  if (supplied.size !== suppliedIds.length || suppliedIds.some((id) => !id)) throw invalidContent()
+
+  if (channel === "naver") {
+    const naver = content as GeneratedNaver
+    const paragraphCount = naver.body.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean).length
+    const placementIds = naver.imagePlacements.map((placement) => placement.imageId)
+    if (new Set(placementIds).size !== placementIds.length
+      || naver.imagePlacements.some((placement) => !supplied.has(placement.imageId)
+        || placement.afterParagraph < 1
+        || placement.afterParagraph > paragraphCount)) {
+      throw invalidContent()
+    }
+    return
+  }
+
+  const instagram = content as GeneratedInstagram
+  const order = instagram.imageOrder
+  if (order.length !== suppliedIds.length
+    || new Set(order).size !== order.length
+    || order.some((id) => !supplied.has(id))
+    || !order.includes(instagram.coverImageId)) {
+    throw invalidContent()
+  }
 }
 
 function promptFor(channel: ContentChannel, retryInstruction?: string): string {
@@ -153,7 +186,7 @@ function schemaFor(channel: ContentChannel): JsonSchema {
               required: ["imageId", "afterParagraph", "caption"],
               properties: {
                 imageId: stringSchema,
-                afterParagraph: { type: "integer", minimum: 0 },
+                afterParagraph: { type: "integer", minimum: 1 },
                 caption: stringSchema,
               },
             },
@@ -247,7 +280,7 @@ function isImagePlacement(value: unknown): boolean {
     && typeof value.imageId === "string"
     && value.imageId.length > 0
     && Number.isInteger(value.afterParagraph)
-    && (value.afterParagraph as number) >= 0
+    && (value.afterParagraph as number) >= 1
     && typeof value.caption === "string"
     && value.caption.length > 0
 }

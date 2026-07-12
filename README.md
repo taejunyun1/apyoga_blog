@@ -124,9 +124,9 @@ npm run deploy:cloudflare
 
 ## 운영형 전환 로드맵
 
-현재 UI와 Pinia 스토어는 포트/어댑터 경계를 사용합니다. 다음 단계에서는 화면 계약을 유지하며 아래 어댑터를 추가합니다.
+현재 채널별 초안 생성은 OpenAI Responses API를 사용하고, 공통 브리프 분석·부분 재작성·검수는 로컬에서 처리합니다. UI와 Pinia 스토어의 포트/어댑터 경계를 유지하며 다음 운영 기능을 확장할 수 있습니다.
 
-1. `OpenAIProvider`: 공통 브리프, 채널 생성, 부분 재작성, 검수의 구조화 출력 연결
+1. `OpenAIProvider`: 현재 연결된 채널별 생성의 품질·비용·오류 관측 강화
 2. `D1DraftRepository`와 `R2ImageRepository`: 서버 임시 저장, TTL 삭제, 감사 가능한 작업 상태
 3. Cloudflare Access: Google 로그인과 허용 사용자 정책
 4. Worker API: 업로드 서명, 생성 요청, 채널별 재시도, 비용·오류 로깅

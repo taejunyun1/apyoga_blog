@@ -107,6 +107,24 @@ describe("studio workflow store", () => {
     expect(store.draft?.naver.data?.introOptions[0]).toContain("호흡")
   })
 
+  it.each(["철학 줄이기", "사진 설명 늘리기"])("keeps the prior Naver body when the %s rewrite is shorter than 500 characters", async (instruction) => {
+    const repository = new InMemoryRepository()
+    class ShortRewriteProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "너무 짧은 본문" }
+      }
+    }
+    configureStudioServices({ repository, ai: new ShortRewriteProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const previousBody = store.draft.naver.data?.body
+
+    await expect(store.rewrite({ channel: "naver", section: "body", instruction })).rejects.toThrow("500자")
+
+    expect(store.draft.naver.data?.body).toBe(previousBody)
+  })
+
   it("refuses generation before explicit brief confirmation", async () => {
     configureStudioServices({ repository: new InMemoryRepository() })
     const store = useStudioStore()

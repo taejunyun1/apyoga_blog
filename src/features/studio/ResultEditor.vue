@@ -28,7 +28,7 @@ const selectedInstagramHook = ref(0)
 
 <template>
   <section class="result-editor">
-    <header class="section-heading-row"><div><h2 class="screen-heading">결과 확인 및 편집</h2><p>로컬 데모 AI가 만든 초안입니다. 게시 전에 내용을 직접 확인해 주세요.</p></div></header>
+    <header class="section-heading-row"><div><h2 class="screen-heading">결과 확인 및 편집</h2><p>생성된 초안입니다. 게시 전에 내용을 직접 확인해 주세요.</p></div></header>
     <ChannelTabs v-model="active" />
     <p v-if="copyStatus" class="copy-status" role="status" aria-live="polite">{{ copyStatus }}</p>
 

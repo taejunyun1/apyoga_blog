@@ -27,11 +27,11 @@ const request: GenerateContentInput = {
 }
 
 function validNaver(): GeneratedNaver {
-  const paragraph = "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살피며 서두르지 않고 각자의 편안한 범위에서 움직였습니다. "
+  const paragraph = "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살피며 서두르지 않고 각자의 편안한 범위에서 움직였습니다."
   return {
     titles: ["천천히 여는 저녁", "몸의 감각을 듣는 시간", "차분하게 이어 간 수련"],
     introOptions: ["오늘의 몸을 살폈습니다.", "작은 움직임에서 시작했습니다.", "편안한 리듬을 찾았습니다."],
-    body: paragraph.repeat(12),
+    body: Array.from({ length: 12 }, (_, index) => `${index + 1}번째 기록입니다. ${paragraph}`).join("\n\n"),
     imagePlacements: [{ imageId: "image-1", afterParagraph: 2, caption: "수련 장면" }],
     hashtags: ["#에이피요가", "#요가기록"],
     classInfo: "수업 정보는 게시 전에 확인해 주세요.",
@@ -99,6 +99,7 @@ describe("OpenAI content client", () => {
     expect(body.text.format.schema.properties.body.minLength).toBe(500)
     expect(body.text.format.schema.additionalProperties).toBe(false)
     expect(body.text.format.schema.properties.imagePlacements.items.additionalProperties).toBe(false)
+    expect(body.text.format.schema.properties.imagePlacements.items.properties.afterParagraph.minimum).toBe(1)
     expect(String(init.body)).not.toContain("blob:")
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
@@ -127,6 +128,43 @@ describe("OpenAI content client", () => {
 
   it("validates an Instagram result with three hooks and distinct captions", () => {
     expect(validateGeneratedContent("instagram", validInstagram(), request)).toEqual(validInstagram())
+  })
+
+  it.each([
+    ["unknown image", { ...validNaver(), imagePlacements: [{ imageId: "missing", afterParagraph: 1, caption: "수련 장면" }] }],
+    ["duplicate image", { ...validNaver(), imagePlacements: [
+      { imageId: "image-1", afterParagraph: 1, caption: "첫 장면" },
+      { imageId: "image-1", afterParagraph: 2, caption: "둘째 장면" },
+    ] }],
+    ["paragraph zero", { ...validNaver(), imagePlacements: [{ imageId: "image-1", afterParagraph: 0, caption: "수련 장면" }] }],
+    ["paragraph overflow", { ...validNaver(), imagePlacements: [{ imageId: "image-1", afterParagraph: 13, caption: "수련 장면" }] }],
+  ])("rejects a Naver placement with %s semantics", async (_name, value) => {
+    await expectRetryable(requestContent("naver", completed(value)).result)
+  })
+
+  it.each([
+    ["unknown image", { ...validInstagram(), imageOrder: ["missing"], coverImageId: "missing" }],
+    ["duplicate image", { ...validInstagram(), imageOrder: ["image-1", "image-1"] }],
+    ["missing image", { ...validInstagram(), imageOrder: [] }],
+    ["cover outside order", { ...validInstagram(), coverImageId: "missing" }],
+  ])("rejects Instagram image order with %s semantics", async (_name, value) => {
+    await expectRetryable(requestContent("instagram", completed(value)).result)
+  })
+
+  it("accepts an Instagram image-order permutation of every supplied image id", () => {
+    const input = {
+      ...request,
+      brief: {
+        ...request.brief,
+        imageDescriptions: [
+          { imageId: "image-1", description: "첫 장면" },
+          { imageId: "image-2", description: "둘째 장면" },
+        ],
+      },
+    }
+    const instagram = { ...validInstagram(), imageOrder: ["image-2", "image-1"], coverImageId: "image-2" }
+
+    expect(validateGeneratedContent("instagram", instagram, input)).toEqual(instagram)
   })
 
   it("rejects a Naver body shorter than 500 characters as retryable", async () => {

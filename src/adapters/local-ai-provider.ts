@@ -1,51 +1,21 @@
 import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
 import type { ContentBrief, InstagramOutput, NaverOutput, ReviewOutput } from "@/domain/studio"
+import {
+  assertSafeRequiredPhrase,
+  forbiddenExpressions,
+  isSafePublishableCopy,
+  sanitizeLocalFragment,
+} from "@/domain/content-safety"
 import { reviewText } from "@/domain/rules"
 
 const NAVER_MIN_LENGTH = 500
 
-function avoidedExpressions(avoid: string): string[] {
-  return avoid.split(/[,\n]/).map((value) => value.trim()).filter(Boolean)
-}
-
-function withoutAvoided(text: string, avoid: string): string {
-  const avoided = avoidedExpressions(avoid)
-  return avoided.reduce((result, value) => result.replaceAll(value, ""), text).replace(/\s{2,}/g, " ").trim()
-}
-
-function withoutNaverAvoided(text: string, avoid: string): string {
-  let result = text
-  let previous = ""
-
-  while (result !== previous) {
-    previous = result
-    result = withoutAvoided(result, avoid)
-  }
-
-  return result
-}
-
 function containsAvoidedExpression(text: string, avoid: string): boolean {
-  return avoidedExpressions(avoid).some((expression) => text.includes(expression))
+  return forbiddenExpressions(avoid).some((expression) => text.includes(expression))
 }
 
 function containsAvoidedExpressionIn(texts: string[], avoid: string): boolean {
   return texts.some((text) => containsAvoidedExpression(text, avoid))
-}
-
-function safePaddingCharacter(avoid: string): string {
-  const avoided = avoidedExpressions(avoid)
-  const preferred = ["·", "○", "△", "◇", "☆", "※", "가", "나", "다"]
-  const preferredCharacter = preferred.find((candidate) => !avoided.some((expression) => expression.includes(candidate)))
-  if (preferredCharacter) return preferredCharacter
-
-  for (let codePoint = 0x21; codePoint <= 0x10ffff; codePoint += 1) {
-    if (codePoint >= 0xd800 && codePoint <= 0xdfff) continue
-    const candidate = String.fromCodePoint(codePoint)
-    if (candidate.trim() && !avoided.some((expression) => expression.includes(candidate))) return candidate
-  }
-
-  throw new Error("금칙어를 제외한 네이버 본문 문자를 만들 수 없습니다.")
 }
 
 function detectBodyFocus(memo: string): string[] {
@@ -54,33 +24,48 @@ function detectBodyFocus(memo: string): string[] {
   return matches.length > 0 ? matches : ["호흡", "전신"]
 }
 
-function hashtags(bodyFocus: string[]): string[] {
-  return ["#에이피요가", "#요가수련", "#오늘의요가", ...bodyFocus.map((focus) => `#${focus}요가`), "#호흡", "#마음챙김"]
+function hashtags(bodyFocus: string[], avoid: string): string[] {
+  return ["#에이피요가", "#요가수련", "#오늘의요가", ...bodyFocus.map((focus) => `#${focus}요가`), "#호흡", "#마음챙김", "#요가기록", "#편안한움직임"]
+    .map((value) => sanitizeLocalFragment(value, avoid))
+    .filter((value) => value.startsWith("#") && value.length > 1)
     .filter((value, index, values) => values.indexOf(value) === index)
     .slice(0, 8)
 }
 
+function safeAlternative(values: string[], avoid: string): string {
+  return values.find((value) => sanitizeLocalFragment(value, avoid) === value) ?? ""
+}
+
 function requiredPhrase(input: AnalyzeImagesInput): string {
-  return input.mustInclude.trim() || "호흡"
+  const required = assertSafeRequiredPhrase(input.mustInclude, input.avoid)
+  if (required) return required
+  const fallback = safeAlternative(["호흡", "몸의 감각", "현재의 리듬", "편안한 관찰"], input.avoid)
+  if (!fallback) throw new Error("금지 표현을 제외하고 안전한 필수 표현을 만들 수 없어요.")
+  return fallback
+}
+
+function safeFocuses(input: ChannelInput): string[] {
+  const focuses = input.brief.bodyFocus
+    .map((focus) => sanitizeLocalFragment(focus, input.avoid))
+    .filter(Boolean)
+  if (focuses.length > 0) return [...new Set(focuses)]
+  const fallback = safeAlternative(["전신", "몸", "움직임", "자세"], input.avoid)
+  if (!fallback) throw new Error("금지 표현을 제외하고 안전한 신체 초점을 만들 수 없어요.")
+  return [fallback]
 }
 
 function naverBody(input: ChannelInput, focus: string, required: string): string {
-  const memo = withoutNaverAvoided(input.memo, input.avoid) || "오늘의 수련을 차분히 돌아보았습니다."
+  const memo = sanitizeLocalFragment(input.memo, input.avoid)
+    || safeAlternative(["오늘의 수련을 차분히 돌아보았습니다.", "함께한 움직임을 천천히 기록했습니다."], input.avoid)
   const paragraphs = [
     `오늘은 ${focus}에 천천히 주의를 기울이며 수련을 시작했습니다. ${required}을 따라 서두르지 않고 몸과 마음이 현재에 도착할 시간을 충분히 두었습니다.`,
     `${memo}라는 기록을 바탕으로 각 동작의 크기보다 움직임이 이어지는 과정과 그 사이의 여백을 살펴보았습니다.`,
     `숨을 들이쉴 때와 내쉴 때 달라지는 감각을 관찰하며 ${focus} 주변의 긴장을 억지로 밀어내지 않고 각자의 편안한 범위 안에서 움직였습니다.`,
     "사진에 담긴 장면마다 완성된 모양보다 집중하는 표정과 안정된 리듬이 먼저 보였습니다. 서로의 속도를 존중하니 수련 공간도 한결 차분해졌습니다.",
     "수련이 깊어질수록 큰 변화보다 작고 분명한 신호를 알아차리는 일이 중요하다는 것을 다시 확인했습니다. 잠시 쉬는 선택도 오늘의 몸에 맞는 좋은 움직임이 될 수 있습니다.",
-    "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요."
-  ]
-  let safe = paragraphs
-    .map((paragraph) => withoutNaverAvoided(paragraph, input.avoid))
-    .filter(Boolean)
-    .join("\n\n")
-  if (safe.trim().length >= NAVER_MIN_LENGTH) return safe
-
-  const continuations = [
+    "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요.",
+    `호흡의 길이를 일부러 바꾸기보다 자연스럽게 이어지는 흐름을 지켜보았습니다. 들숨과 날숨 사이에 생기는 작은 쉼도 수련의 일부로 받아들였습니다.`,
+    `동작을 옮길 때에는 발과 손이 바닥을 누르는 감각을 확인했습니다. 안정된 지점을 찾은 뒤 다음 움직임을 선택하니 몸의 반응을 더 또렷하게 알아차릴 수 있었습니다.`,
     `A.P YOGA는 정답처럼 보이는 자세보다 자신의 ${focus} 감각을 세심하게 알아차리는 과정을 소중히 여깁니다.`,
     `다음 수련에서도 ${required}으로 돌아오며 오늘의 경험을 차분히 이어가겠습니다. 익숙한 동작에서도 새로운 느낌이 있는지 천천히 살펴보겠습니다.`,
     "수업을 떠올릴 때에는 잘한 동작을 고르기보다 어느 순간 숨이 편안해졌는지 기억해 보아도 좋습니다. 그 기억은 다음 움직임을 선택하는 단서가 됩니다.",
@@ -89,22 +74,28 @@ function naverBody(input: ChannelInput, focus: string, required: string): string
     "함께한 사람들의 서로 다른 속도는 수련에 한 가지 답만 있는 것이 아님을 보여주었습니다. 비교보다 관찰에 머물 때 각자의 경험이 더욱 선명해집니다.",
     "작은 메모를 남겨 두면 지나치기 쉬운 변화를 다음 수업에서 다시 만날 수 있습니다. 편안했던 순간과 잠시 쉬고 싶었던 순간을 함께 적어 보세요.",
     "편안함의 기준은 날마다 달라질 수 있으므로 어제의 범위를 그대로 따르지 않아도 괜찮습니다. 지금 확인한 신호를 기준으로 다음 선택을 이어가면 됩니다."
-  ].map((paragraph) => withoutNaverAvoided(paragraph, input.avoid)).filter(Boolean)
+  ]
+  const safeParagraphs = paragraphs
+    .map((paragraph) => sanitizeLocalFragment(paragraph, input.avoid))
+    .filter((paragraph) => paragraph.length >= 12)
+    .filter((paragraph, index, values) => values.indexOf(paragraph) === index)
+  const selected: string[] = []
 
-  for (const continuation of continuations) {
-    if (safe.trim().length >= NAVER_MIN_LENGTH) break
-    safe = [safe, continuation].filter(Boolean).join("\n\n")
+  for (const paragraph of safeParagraphs) {
+    selected.push(paragraph)
+    if (selected.join("\n\n").trim().length >= NAVER_MIN_LENGTH) break
   }
 
-  if (safe.trim().length >= NAVER_MIN_LENGTH) return safe
-
-  const paddingCharacter = safePaddingCharacter(input.avoid)
-  return `${safe}${safe ? "\n\n" : ""}${paddingCharacter.repeat(NAVER_MIN_LENGTH - safe.trim().length)}`
+  const body = selected.join("\n\n").trim()
+  if (body.length < NAVER_MIN_LENGTH) {
+    throw new Error("금지 표현을 제외하면 의미 있는 네이버 본문 500자를 만들 수 없어요.")
+  }
+  return body
 }
 
 export class LocalAIProvider implements AIProvider {
   async analyzeImages(input: AnalyzeImagesInput): Promise<ContentBrief> {
-    const cleanedMemo = withoutAvoided(input.memo, input.avoid)
+    const cleanedMemo = sanitizeLocalFragment(input.memo, input.avoid)
     const bodyFocus = detectBodyFocus(cleanedMemo)
     const mood = cleanedMemo.includes("차분") ? "차분한 수련의 분위기" : "집중과 이완이 함께한 수련"
     const cover = input.images.find((image) => image.isCover) ?? input.images[0]
@@ -128,26 +119,27 @@ export class LocalAIProvider implements AIProvider {
   }
 
   async generateNaver(input: ChannelInput): Promise<NaverOutput> {
-    const focus = input.brief.bodyFocus.join("과 ")
+    const focuses = safeFocuses(input)
+    const focus = focuses.join("과 ")
     const required = requiredPhrase(input)
     const body = naverBody(input, focus, required)
     const titles = [
       `${focus}, 오늘의 요가 수련 기록`,
       `${required}과 함께 천천히 돌아본 시간`,
       "몸의 감각을 깨우는 A.P YOGA 수련"
-    ]
+    ].map((copy) => sanitizeLocalFragment(copy, input.avoid))
     const introOptions = [
-      `${input.brief.overallMood} 속에서 오늘의 수련을 시작했습니다.`,
+      `${sanitizeLocalFragment(input.brief.overallMood, input.avoid) || "차분한 분위기"} 속에서 오늘의 수련을 시작했습니다.`,
       `바쁜 하루 끝, ${required}에 잠시 머물렀습니다.`,
       `${focus}의 감각을 차분하게 살펴본 시간이었어요.`
-    ]
+    ].map((copy) => sanitizeLocalFragment(copy, input.avoid))
     const imagePlacements = input.brief.recommendedImageOrder.map((imageId, index) => ({
       imageId,
       afterParagraph: Math.min(index + 1, 3),
-      caption: `${focus}의 감각을 살펴보는 수련 장면`
+      caption: sanitizeLocalFragment(`${focus}의 감각을 살펴보는 수련 장면`, input.avoid)
     }))
-    const outputHashtags = hashtags(input.brief.bodyFocus)
-    const classInfo = "수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요."
+    const outputHashtags = hashtags(focuses, input.avoid)
+    const classInfo = sanitizeLocalFragment("수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요.", input.avoid)
     const publishableText = [
       ...titles,
       ...introOptions,
@@ -156,6 +148,11 @@ export class LocalAIProvider implements AIProvider {
       ...outputHashtags,
       classInfo
     ]
+    if (titles.some((copy) => !copy) || introOptions.some((copy) => !copy)
+      || imagePlacements.some((placement) => !placement.caption) || !classInfo
+      || !isSafePublishableCopy(publishableText, input.avoid) || !body.includes(required)) {
+      throw new Error("금지 표현을 제외하고 안전한 네이버 초안을 만들 수 없어요.")
+    }
 
     return {
       titles,
@@ -173,16 +170,23 @@ export class LocalAIProvider implements AIProvider {
   }
 
   async generateInstagram(input: ChannelInput): Promise<InstagramOutput> {
-    const focus = input.brief.bodyFocus.join("과 ")
+    const focuses = safeFocuses(input)
+    const focus = focuses.join("과 ")
     const required = requiredPhrase(input)
-    const captionLong = withoutAvoided(
+    const captionLong = sanitizeLocalFragment(
       `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
       input.avoid
     )
-    const captionShort = withoutAvoided(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
+    const captionShort = sanitizeLocalFragment(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
     const hookOptions = ["몸이 먼저 알아차린 작은 변화", `${required}으로 돌아오는 시간`, `오늘은 ${focus}에서 시작했어요`]
-    const outputHashtags = hashtags(input.brief.bodyFocus)
+      .map((copy) => sanitizeLocalFragment(copy, input.avoid))
+    const outputHashtags = hashtags(focuses, input.avoid)
     const publishableText = [...hookOptions, captionLong, captionShort, ...outputHashtags]
+    if (hookOptions.some((copy) => !copy) || !captionLong || !captionShort
+      || !isSafePublishableCopy(publishableText, input.avoid)
+      || !captionLong.includes(required)) {
+      throw new Error("금지 표현을 제외하고 안전한 인스타그램 초안을 만들 수 없어요.")
+    }
 
     return {
       hookOptions,
@@ -197,11 +201,32 @@ export class LocalAIProvider implements AIProvider {
   }
 
   async rewriteSection(input: RewriteInput): Promise<RewriteOutput> {
+    if (input.channel === "naver" && input.section === "body") {
+      const current = input.currentText.trim()
+      if (current.length < NAVER_MIN_LENGTH) {
+        throw new Error("네이버 본문 재작성은 500자 이상의 기존 본문이 필요해요.")
+      }
+      if (!isSafePublishableCopy([current], input.avoid)) {
+        throw new Error("금지 표현 또는 의료적 단정이 있는 본문은 안전하게 재작성할 수 없어요.")
+      }
+      const rawAddition = input.instruction.includes("사진 설명")
+        ? "사진 속에서는 동작의 완성보다 시선이 머무는 방향과 손발이 바닥을 누르는 모습, 움직임 사이에 잠시 쉬어 가는 장면을 차분하게 살펴볼 수 있습니다."
+        : "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다."
+      const addition = sanitizeLocalFragment(rawAddition, input.avoid)
+      if (!addition || current.includes(addition)) return { section: input.section, text: current }
+      const rewritten = `${current}\n\n${addition}`
+      if (!isSafePublishableCopy([rewritten], input.avoid)) {
+        throw new Error("금지 표현을 제외하고 안전한 네이버 본문을 재작성할 수 없어요.")
+      }
+      return { section: input.section, text: rewritten }
+    }
     const memoFocus = detectBodyFocus(input.memo).join("과 ")
     const toneLead = input.instruction.includes("감성 줄이기") ? "담백하게 정리하면" : "조금 더 자세히 돌아보면"
+    const text = sanitizeLocalFragment(`${toneLead}, ${memoFocus}의 감각과 호흡에 집중한 수련이었습니다.`, input.avoid)
+    if (!text) throw new Error("금지 표현을 제외하고 안전한 문장을 재작성할 수 없어요.")
     return {
       section: input.section,
-      text: `${toneLead}, ${memoFocus}의 감각과 호흡에 집중한 수련이었습니다.`
+      text
     }
   }
 

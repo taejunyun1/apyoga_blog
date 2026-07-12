@@ -31,4 +31,24 @@ describe("studio domain rules", () => {
     expect(result.medicalClaims).toContain("치료합니다")
     expect(result.repetitions).toContain("호흡을 느껴요")
   })
+
+  it.each([
+    "호흡 수련으로 통증을 치료해 드릴 수 있습니다.",
+    "호흡으로 척추를 교정할 수 있습니다.",
+    "이 수련은 완치를 보장합니다.",
+    "호흡을 하면 통증이 나아집니다.",
+  ])("does not pass a medical certainty variant: %s", (claim) => {
+    const result = reviewText(claim)
+
+    expect(result.medicalClaims).not.toHaveLength(0)
+    expect(result.passed).toBe(false)
+  })
+
+  it.each([
+    "무리하기보다 편안한 범위에 머무는 편이 낫습니다.",
+    "동작의 연결이 나아집니다.",
+    "완치라는 표현은 사용하지 않습니다.",
+  ])("allows benign non-medical wording: %s", (copy) => {
+    expect(reviewText(copy)).toMatchObject({ medicalClaims: [], passed: true })
+  })
 })

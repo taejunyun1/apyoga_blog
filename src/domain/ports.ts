@@ -20,6 +20,7 @@ export interface RewriteInput {
   currentText: string
   instruction: string
   memo: string
+  avoid: string
   tone: Tone
 }
 

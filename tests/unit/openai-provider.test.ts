@@ -87,32 +87,20 @@ describe("OpenAIProvider", () => {
     expect(JSON.stringify(body)).not.toContain("masks")
   })
 
-  it("falls back locally for only a content-service failure", async () => {
+  it("surfaces a contradictory Naver constraint after a content-service fallback", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 502 }))
     const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
     const input = { ...channelInput, mustInclude: "치료", avoid: "치료" }
 
-    const result = await provider.generateNaver(input)
-
-    expect(result.generationSource).toBe("local-fallback")
-    expect(result.body.trim().length).toBeGreaterThanOrEqual(500)
-    expect(result.body).not.toContain("치료")
-    expect([...result.titles, ...result.introOptions].join("\n")).toContain("치료")
-    expect(result.qualityChecks).toEqual({ avoidedExpressionRemoved: false, includesRequiredPhrase: false })
+    await expect(provider.generateNaver(input)).rejects.toThrow("필수 표현")
   })
 
-  it("keeps local Instagram fallback quality checks truthful", async () => {
+  it("surfaces a contradictory Instagram constraint after a content-service fallback", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 502 }))
     const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
     const input = { ...channelInput, mustInclude: "치료", avoid: "치료" }
 
-    const result = await provider.generateInstagram(input)
-
-    expect(result.generationSource).toBe("local-fallback")
-    expect(result.captionLong).not.toContain("치료")
-    expect(result.captionShort).not.toContain("치료")
-    expect(result.hookOptions.join("\n")).toContain("치료")
-    expect(result.qualityChecks).toEqual({ avoidedExpressionRemoved: false })
+    await expect(provider.generateInstagram(input)).rejects.toThrow("필수 표현")
   })
 
   it.each([
