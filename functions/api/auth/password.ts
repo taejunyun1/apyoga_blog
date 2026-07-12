@@ -30,7 +30,11 @@ async function readBoundedJson(request: Request, maxBytes: number): Promise<unkn
       if (done) break
       total += value.byteLength
       if (total > maxBytes) {
-        await reader.cancel()
+        try {
+          await reader.cancel()
+        } catch {
+          // The body is already rejected; cancellation failure must not change the response.
+        }
         throw new PasswordBodyTooLargeError()
       }
       chunks.push(value)
@@ -68,10 +72,7 @@ function validatePasswordBody(body: unknown): PasswordFields {
   ) {
     throw new InvalidPasswordBodyError()
   }
-  return {
-    currentPassword: fields.currentPassword,
-    newPassword: fields.newPassword,
-  }
+  return fields as unknown as PasswordFields
 }
 
 export async function handlePasswordChange(
@@ -82,10 +83,10 @@ export async function handlePasswordChange(
   if (!isSameOriginJson(request)) return json(INVALID_REQUEST, 403)
   if (!env.AUTH_RATE_LIMIT || !env.SESSION_SECRET || !env.AUTH_DB) return json(GENERIC_FAILURE, 500)
 
+  let fields: PasswordFields | undefined
   let currentPassword = ""
   let newPassword = ""
   try {
-    let fields: PasswordFields
     try {
       fields = validatePasswordBody(await readBoundedJson(request, MAX_BODY_BYTES))
     } catch (error) {
@@ -130,6 +131,10 @@ export async function handlePasswordChange(
       return json(GENERIC_FAILURE, 503)
     }
   } finally {
+    if (fields) {
+      fields.currentPassword = "\0".repeat(fields.currentPassword.length)
+      fields.newPassword = "\0".repeat(fields.newPassword.length)
+    }
     currentPassword = "\0".repeat(currentPassword.length)
     newPassword = "\0".repeat(newPassword.length)
   }

@@ -141,6 +141,27 @@ describe("authenticated password-change Function", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store")
   })
 
+  it("clears the mutable parsed password fields after handling", async () => {
+    const fields = {
+      currentPassword: "test-password",
+      newPassword: "new-password-123",
+    }
+    const request = new Request("https://studio.example/api/auth/password", {
+      method: "POST",
+      headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
+    })
+    Object.defineProperty(request, "json", { value: async () => fields })
+    const { env } = makeEnv()
+
+    const response = await handlePasswordChange(request, env, nowSeconds)
+
+    expect(response.status).toBe(204)
+    expect(fields).toEqual({
+      currentPassword: "\0".repeat("test-password".length),
+      newPassword: "\0".repeat("new-password-123".length),
+    })
+  })
+
   it("exposes the Pages POST handler", async () => {
     const { env } = makeEnv()
     const response = await onRequestPost({
@@ -267,6 +288,36 @@ describe("authenticated password-change Function", () => {
     await expectFailure(response, 413)
     expect(cancelled).toBe(true)
     expect(pulls).toBe(3)
+  })
+
+  it("keeps the 413 response when streamed-body cancellation rejects", async () => {
+    const chunks = [new Uint8Array(2_049), new Uint8Array(1_024)]
+    let pulls = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(chunks[pulls])
+        pulls += 1
+      },
+      cancel() {
+        cancelled = true
+        throw new Error("synthetic cancellation failure must stay private")
+      },
+    }, { highWaterMark: 0 })
+    const request = new Request("https://studio.example/api/auth/password", {
+      method: "POST",
+      headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+    const { env } = makeEnv()
+
+    const response = await handlePasswordChange(request, env, nowSeconds)
+
+    await expectFailure(response, 413)
+    expect(await response.text()).not.toContain("synthetic cancellation failure")
+    expect(cancelled).toBe(true)
+    expect(pulls).toBe(1)
   })
 
   it("maps D1 write failures to a generic 503 without exception text or cookie expiry", async () => {
