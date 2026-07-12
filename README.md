@@ -60,11 +60,13 @@ E2E는 Chromium의 `390×844` 모바일 뷰포트와 `1280×900` 데스크톱 �
 
 현재 생성기는 네트워크를 사용하지 않는 결정론적 `LocalAIProvider`입니다. 결과 화면에도 “로컬 데모 AI”라고 표시됩니다. 실제 OpenAI 결과나 최신 수업·예약 정보를 제공하지 않으므로 게시 전에 문장, 날짜, 수업 정보를 반드시 확인하세요.
 
-자동 게시, 실제 로그인, Cloudflare Access, D1/R2 서버 저장, 실제 OpenAI 호출, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
+자동 게시, Cloudflare Access, D1/R2 서버 저장, 실제 OpenAI 호출, 승인형 Brand Memory는 구현 범위 밖입니다. Safari의 HEIC 입력·메모리 사용·PWA 설치는 실제 기기에서 별도 확인이 필요합니다.
 
 ## Cloudflare Pages 배포
 
 프로덕션 URL: [https://ap-yoga-content-studio.pages.dev/](https://ap-yoga-content-studio.pages.dev/)
+
+로그인 URL: [https://ap-yoga-content-studio.pages.dev/login](https://ap-yoga-content-studio.pages.dev/login)
 
 이 프로젝트는 Cloudflare Pages Direct Upload 방식입니다. `wrangler.jsonc`의 프로젝트명과 `dist` 출력 경로를 사용하며, 아래 명령은 빌드를 먼저 실행한 뒤 `master` 프로덕션 브랜치로 업로드합니다.
 
@@ -85,7 +87,21 @@ npx wrangler pages project list
 npx wrangler pages deployment list --project-name ap-yoga-content-studio
 ```
 
-Direct Upload 프로젝트는 같은 프로젝트에서 Git integration 방식으로 전환할 수 없습니다. 향후 GitHub 자동 배포가 필요하면 Git 연동용 Pages 프로젝트를 새로 만드는 편이 안전합니다. API 키는 `wrangler secret put`으로 입력하고 `.dev.vars`나 비밀 값을 Git에 커밋하지 마세요.
+Direct Upload 프로젝트는 같은 프로젝트에서 Git integration 방식으로 전환할 수 없습니다. 향후 GitHub 자동 배포가 필요하면 Git 연동용 Pages 프로젝트를 새로 만드는 편이 안전합니다. `.dev.vars`나 비밀 값을 Git에 커밋하지 마세요.
+
+### 프로덕션 로그인 운영
+
+Pages에는 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET` 세 secret과 로그인 시도 제한용 `AUTH_RATE_LIMIT` KV binding이 필요합니다. 실제 아이디와 비밀번호, 파생 해시, 세션 secret 값은 문서·명령 기록·저장소에 남기지 않습니다.
+
+최초 등록과 자격 증명 회전은 대화형 터미널에서 아래 명령만 사용합니다. 아이디와 비밀번호는 이 명령의 프롬프트를 통해서만 입력하고, 개별 `wrangler pages secret put` 명령이나 파일에 직접 넣지 마세요.
+
+```bash
+npm run auth:provision
+```
+
+이 명령은 비밀번호 해시와 새 `SESSION_SECRET`을 함께 등록하므로 기존 로그인 세션도 무효화합니다. 로그인 쿠키의 최대 수명은 30일이며 로그아웃 또는 자격 증명 회전 시 그보다 일찍 종료됩니다.
+
+로그인 실패 횟수는 Cloudflare KV에 저장됩니다. KV는 eventual consistency 방식이므로 엣지 위치가 다른 동시 요청에서는 제한 상태 반영이 잠시 늦거나 서로 다르게 보일 수 있습니다. 강한 일관성이 필요한 계정 잠금 수단으로 사용하지 마세요.
 
 ## 운영형 전환 로드맵
 
