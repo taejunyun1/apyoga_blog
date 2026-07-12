@@ -103,10 +103,14 @@ describe("authentication Functions", () => {
 
     const first = await rateLimitKey(request, loginSecret)
     const second = await rateLimitKey(request, loginSecret)
+    const passwordChange = await rateLimitKey(request, loginSecret, "password-change")
 
     expect(first).toBe(second)
     expect(first).toMatch(/^login:[a-f0-9]{64}$/)
     expect(first).not.toContain("203.0.113.42")
+    expect(passwordChange).toMatch(/^password-change:[a-f0-9]{64}$/)
+    expect(passwordChange).not.toBe(first)
+    expect(passwordChange).not.toContain("203.0.113.42")
   })
 
   it("sets a hardened cookie for matching fake credentials", async () => {

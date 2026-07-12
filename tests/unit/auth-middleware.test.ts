@@ -92,6 +92,35 @@ describe("Pages authentication middleware", () => {
     expect(next).not.toHaveBeenCalled()
   })
 
+  it("keeps the password-change API private without a session", async () => {
+    const next = vi.fn(async () => staticResponse())
+
+    const response = await protectRequest(
+      new Request("https://studio.example/api/auth/password", { method: "POST" }),
+      env,
+      next,
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ message: "로그인이 필요해요." })
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it("passes a current-version session to the password-change API", async () => {
+    const credential = await readActiveCredential(env)
+    const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)
+    const next = vi.fn(async () => staticResponse())
+    const request = new Request("https://studio.example/api/auth/password", {
+      method: "POST",
+      headers: { Cookie: `ap_yoga_session=${token}` },
+    })
+
+    const response = await protectRequest(request, env, next)
+
+    expect(response.status).toBe(200)
+    expect(next).toHaveBeenCalledOnce()
+  })
+
   it("passes a valid signed session to static routing", async () => {
     const credential = await readActiveCredential(env)
     const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET, credential.version)

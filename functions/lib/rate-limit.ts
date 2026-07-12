@@ -10,7 +10,11 @@ export interface FailureWindow {
   expiresAt: number
 }
 
-export async function rateLimitKey(request: Request, secret: string): Promise<string> {
+export async function rateLimitKey(
+  request: Request,
+  secret: string,
+  scope: "login" | "password-change" = "login",
+): Promise<string> {
   const address = request.headers.get("CF-Connecting-IP") ?? "unknown"
   const key = await crypto.subtle.importKey(
     "raw",
@@ -20,9 +24,9 @@ export async function rateLimitKey(request: Request, secret: string): Promise<st
     ["sign"],
   )
   const signature = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, encoder.encode(`login:${address}`)),
+    await crypto.subtle.sign("HMAC", key, encoder.encode(`${scope}:${address}`)),
   )
-  return `login:${Array.from(signature).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`
+  return `${scope}:${Array.from(signature).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 function freshWindow(nowSeconds: number): FailureWindow {
