@@ -47,4 +47,3 @@ export function isSafePublishableCopy(values: string[], avoid: string): boolean 
   return values.every((value) => !hasMedicalClaim(value)
     && !forbidden.some((expression) => value.includes(expression)))
 }
-
