@@ -10,15 +10,16 @@ function avoidedExpressions(avoid: string): string[] {
 
 function withoutAvoided(text: string, avoid: string): string {
   const avoided = avoidedExpressions(avoid)
+  return avoided.reduce((result, value) => result.replaceAll(value, ""), text).replace(/\s{2,}/g, " ").trim()
+}
+
+function withoutNaverAvoided(text: string, avoid: string): string {
   let result = text
   let previous = ""
 
   while (result !== previous) {
     previous = result
-    result = avoided
-      .reduce((current, value) => current.replaceAll(value, ""), result)
-      .replace(/\s{2,}/g, " ")
-      .trim()
+    result = withoutAvoided(result, avoid)
   }
 
   return result
@@ -60,7 +61,7 @@ function requiredPhrase(input: AnalyzeImagesInput): string {
 }
 
 function naverBody(input: ChannelInput, focus: string, required: string): string {
-  const memo = withoutAvoided(input.memo, input.avoid) || "오늘의 수련을 차분히 돌아보았습니다."
+  const memo = withoutNaverAvoided(input.memo, input.avoid) || "오늘의 수련을 차분히 돌아보았습니다."
   const paragraphs = [
     `오늘은 ${focus}에 천천히 주의를 기울이며 수련을 시작했습니다. ${required}을 따라 서두르지 않고 몸과 마음이 현재에 도착할 시간을 충분히 두었습니다.`,
     `${memo}라는 기록을 바탕으로 각 동작의 크기보다 움직임이 이어지는 과정과 그 사이의 여백을 살펴보았습니다.`,
@@ -69,16 +70,26 @@ function naverBody(input: ChannelInput, focus: string, required: string): string
     "수련이 깊어질수록 큰 변화보다 작고 분명한 신호를 알아차리는 일이 중요하다는 것을 다시 확인했습니다. 잠시 쉬는 선택도 오늘의 몸에 맞는 좋은 움직임이 될 수 있습니다.",
     "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요."
   ]
-  let safe = withoutAvoided(paragraphs.join("\n\n"), input.avoid)
+  let safe = paragraphs
+    .map((paragraph) => withoutNaverAvoided(paragraph, input.avoid))
+    .filter(Boolean)
+    .join("\n\n")
   if (safe.trim().length >= NAVER_MIN_LENGTH) return safe
 
-  const continuation = withoutAvoided(
-    `A.P YOGA는 정답처럼 보이는 자세보다 자신의 ${focus} 감각을 세심하게 알아차리는 과정을 소중히 여깁니다. 다음 수련에서도 ${required}으로 돌아오며 오늘의 경험을 차분히 이어가겠습니다.`,
-    input.avoid
-  )
+  const continuations = [
+    `A.P YOGA는 정답처럼 보이는 자세보다 자신의 ${focus} 감각을 세심하게 알아차리는 과정을 소중히 여깁니다.`,
+    `다음 수련에서도 ${required}으로 돌아오며 오늘의 경험을 차분히 이어가겠습니다. 익숙한 동작에서도 새로운 느낌이 있는지 천천히 살펴보겠습니다.`,
+    "수업을 떠올릴 때에는 잘한 동작을 고르기보다 어느 순간 숨이 편안해졌는지 기억해 보아도 좋습니다. 그 기억은 다음 움직임을 선택하는 단서가 됩니다.",
+    "매트 밖에서도 잠깐 멈춰 서서 발바닥이 바닥에 닿는 느낌을 확인해 보세요. 짧은 관찰만으로도 바쁜 흐름에서 자신의 속도를 다시 찾을 수 있습니다.",
+    "다음에 같은 동작을 만나더라도 오늘과 똑같이 할 필요는 없습니다. 그날의 상태를 먼저 살피고 가능한 범위를 새롭게 정하는 것이 자연스럽습니다.",
+    "함께한 사람들의 서로 다른 속도는 수련에 한 가지 답만 있는 것이 아님을 보여주었습니다. 비교보다 관찰에 머물 때 각자의 경험이 더욱 선명해집니다.",
+    "작은 메모를 남겨 두면 지나치기 쉬운 변화를 다음 수업에서 다시 만날 수 있습니다. 편안했던 순간과 잠시 쉬고 싶었던 순간을 함께 적어 보세요.",
+    "편안함의 기준은 날마다 달라질 수 있으므로 어제의 범위를 그대로 따르지 않아도 괜찮습니다. 지금 확인한 신호를 기준으로 다음 선택을 이어가면 됩니다."
+  ].map((paragraph) => withoutNaverAvoided(paragraph, input.avoid)).filter(Boolean)
 
-  while (safe.trim().length < NAVER_MIN_LENGTH && continuation) {
-    safe = `${safe}\n\n${continuation}`.trim()
+  for (const continuation of continuations) {
+    if (safe.trim().length >= NAVER_MIN_LENGTH) break
+    safe = [safe, continuation].filter(Boolean).join("\n\n")
   }
 
   if (safe.trim().length >= NAVER_MIN_LENGTH) return safe
