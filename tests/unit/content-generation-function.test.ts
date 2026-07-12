@@ -92,6 +92,64 @@ describe("content generation Pages Function", () => {
     await expect(response.json()).resolves.toEqual({ message: "입력 내용이 너무 길어요." })
   })
 
+  it("cancels a falsely small streamed body as soon as byte 32,769 is observed", async () => {
+    const chunks = [
+      new Uint8Array(32_768),
+      new Uint8Array([0x7b]),
+      new TextEncoder().encode("must-not-be-pulled"),
+    ]
+    let index = 0
+    let bytesPulled = 0
+    let cancelled = false
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks[index]
+        index += 1
+        if (!chunk) {
+          controller.close()
+          return
+        }
+        bytesPulled += chunk.byteLength
+        controller.enqueue(chunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    }, { highWaterMark: 0 })
+    const request = new Request("https://studio.example/api/content/generate", {
+      method: "POST",
+      headers: {
+        Origin: "https://studio.example",
+        "Content-Type": "application/json",
+        "Content-Length": "1",
+      },
+      body,
+      duplex: "half",
+    } as RequestInit)
+
+    const response = await handleContentGeneration(request, env, dependencies())
+
+    expect(response.status).toBe(413)
+    expect(cancelled).toBe(true)
+    expect(bytesPulled).toBe(32_769)
+  })
+
+  it.each([
+    ["a null body", null],
+    ["invalid UTF-8", new Uint8Array([0xff])],
+  ])("rejects %s with the generic request response", async (_label, body) => {
+    const request = new Request("https://studio.example/api/content/generate", {
+      method: "POST",
+      headers: { Origin: "https://studio.example", "Content-Type": "application/json" },
+      body,
+    })
+
+    const response = await handleContentGeneration(request, env, dependencies())
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ message: "요청을 확인해 주세요." })
+  })
+
   it.each([
     ["unsupported channel", { channel: "youtube", input: validInput() }],
     ["memo over 4,000 characters", { channel: "naver", input: { ...validInput(), memo: "가".repeat(4_001) } }],

@@ -15,6 +15,8 @@ const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
 ])
 const TONES = new Set<GenerateContentInput["tone"]>(["plain", "emotional", "deep"])
 
+class RequestBodyTooLargeError extends Error {}
+
 interface ContentRequest {
   channel: ContentChannel
   input: GenerateContentInput
@@ -45,15 +47,13 @@ export async function handleContentGeneration(
     return json({ message: "AI 설정을 확인해 주세요." }, 500)
   }
 
-  const raw = await request.text()
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
-    return json({ message: "입력 내용이 너무 길어요." }, 413)
-  }
-
   let parsed: ContentRequest
   try {
-    parsed = validateContentRequest(JSON.parse(raw))
-  } catch {
+    parsed = validateContentRequest(await readJsonBody(request))
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return json({ message: "입력 내용이 너무 길어요." }, 413)
+    }
     return json({ message: "요청을 확인해 주세요." }, 400)
   }
 
@@ -77,6 +77,47 @@ export async function handleContentGeneration(
 export async function hashedSafetyIdentifier(account: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(account))
   return Array.from(new Uint8Array(digest).slice(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function readJsonBody(request: Request): Promise<unknown> {
+  const bytes = await readBoundedBody(request.body)
+  const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  return JSON.parse(raw)
+}
+
+async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
+  if (!body) throw new Error("missing request body")
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      totalBytes += value.byteLength
+      if (totalBytes > MAX_BODY_BYTES) {
+        try {
+          await reader.cancel()
+        } catch {
+          // The body is already rejected; cancellation failure must not change the response.
+        }
+        throw new RequestBodyTooLargeError()
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
 function validateContentRequest(value: unknown): ContentRequest {
