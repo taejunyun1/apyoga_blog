@@ -35,6 +35,9 @@ const selectedInstagramHook = ref(0)
     <div v-if="active === 'naver'" role="tabpanel" class="channel-panel">
       <template v-if="naver.status === 'success' && naver.data">
         <p class="channel-ready">네이버 글이 준비됐어요</p>
+        <p v-if="naver.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
+          AI 연결이 불안정해 로컬 초안을 사용했어요.
+        </p>
         <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input v-model="selectedNaverTitle" type="radio" name="naver-title" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
         <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input v-model="selectedNaverIntro" type="radio" name="naver-intro" :value="index" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
         <label class="field-label">본문 편집<textarea v-model="naver.data.body" rows="12" /></label>
@@ -52,6 +55,9 @@ const selectedInstagramHook = ref(0)
     <div v-else role="tabpanel" class="channel-panel">
       <template v-if="instagram.status === 'success' && instagram.data">
         <p class="channel-ready">인스타그램 글이 준비됐어요</p>
+        <p v-if="instagram.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
+          AI 연결이 불안정해 로컬 초안을 사용했어요.
+        </p>
         <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input v-model="selectedInstagramHook" type="radio" name="instagram-hook" :value="index" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
         <label class="field-label">기본형 캡션<textarea v-model="instagram.data.captionLong" rows="9" /></label>
         <label class="field-label">짧은 캡션<textarea v-model="instagram.data.captionShort" rows="3" /></label>

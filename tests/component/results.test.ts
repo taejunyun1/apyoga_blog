@@ -1,20 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/vue"
 import { describe, expect, it } from "vitest"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
+import { naverOutput } from "../fixtures"
 
 const naver = {
   status: "success" as const,
   error: null,
-  data: {
-    titles: ["호흡과 함께한 저녁 수련", "어깨를 여는 시간", "오늘의 요가 기록"],
-    introOptions: ["차분한 저녁 수련을 시작했습니다.", "호흡으로 돌아옵니다.", "몸의 감각을 살펴봅니다."],
-    body: "오늘은 어깨와 흉곽에 천천히 주의를 기울였습니다.",
-    imagePlacements: [],
-    hashtags: ["#에이피요가", "#요가수련"],
-    classInfo: "예약 정보 확인",
-    generationSource: "local-fallback" as const,
-    qualityChecks: {}
-  }
+  data: naverOutput
 }
 
 const failedInstagram = { status: "error" as const, error: "instagram unavailable", data: null }
@@ -55,5 +47,20 @@ describe("ResultEditor", () => {
     render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, copyStatus: "클립보드에 복사했어요" } })
 
     expect(screen.getByRole("status").textContent).toContain("클립보드에 복사했어요")
+  })
+
+  it("explains a local fallback without hiding the generated result", () => {
+    render(ResultEditor, {
+      props: {
+        naver: { ...naver, data: { ...naverOutput, generationSource: "local-fallback" } },
+        instagram: failedInstagram,
+        review,
+        copyFallback: null
+      }
+    })
+
+    expect(screen.getByText("AI 연결이 불안정해 로컬 초안을 사용했어요.")).toBeTruthy()
+    expect(screen.getByLabelText("본문 편집")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "본문 복사" })).toBeTruthy()
   })
 })

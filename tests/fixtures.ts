@@ -1,4 +1,15 @@
-import type { StudioImage } from "@/domain/studio"
+import type { NaverOutput, StudioImage } from "@/domain/studio"
+
+export const naverOutput: NaverOutput = {
+  titles: ["호흡과 함께한 저녁 수련", "어깨를 여는 시간", "오늘의 요가 기록"],
+  introOptions: ["차분한 저녁 수련을 시작했습니다.", "호흡으로 돌아옵니다.", "몸의 감각을 살펴봅니다."],
+  body: "오늘은 어깨와 흉곽에 천천히 주의를 기울였습니다.",
+  imagePlacements: [],
+  hashtags: ["#에이피요가", "#요가수련"],
+  classInfo: "예약 정보 확인",
+  generationSource: "openai",
+  qualityChecks: {}
+}
 
 export function studioImages(count = 3): StudioImage[] {
   return Array.from({ length: count }, (_, index) => ({

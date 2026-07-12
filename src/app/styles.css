@@ -841,7 +841,8 @@ select:focus-visible {
   font-weight: 650;
 }
 
-.season-note {
+.season-note,
+.generation-source-notice {
   margin: 0;
   border-left: 3px solid var(--ap-accent);
   padding: 9px 12px;
