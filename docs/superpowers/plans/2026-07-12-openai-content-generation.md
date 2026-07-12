@@ -17,6 +17,7 @@
 - `OPENAI_API_KEY` exists only as a Cloudflare production secret and must never appear in Git, command arguments, browser bundles, responses, or logs.
 - OpenAI requests use `gpt-5.6-luna`, `store: false`, low reasoning effort, a hashed safety identifier, and strict `text.format` JSON Schema.
 - Retry network errors, 429, 5xx, invalid structured output, and short Naver output once; do not retry OpenAI auth or other non-retryable 4xx errors.
+- Browser API responses with 401 or 403 are authentication failures: never fall back locally; propagate them so the app can return to login. Local fallback is allowed only for content-service failure responses such as 502.
 - All content API responses use `Cache-Control: no-store` and require the existing authenticated same-origin JSON flow.
 - Existing edit, rewrite, copy, IndexedDB persistence, and channel-specific error behavior remain intact.
 
@@ -488,6 +489,7 @@ export class OpenAIProvider implements AIProvider {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ channel, input: toContentInput(channel, input) })
     })
+    if (response.status === 401 || response.status === 403) throw new Error("로그인이 필요해요.")
     if (!response.ok) return { ...(await fallback()), generationSource: "local-fallback" as const }
     const payload = await response.json() as { data: RemoteNaver | RemoteInstagram }
     if (channel === "naver") {
