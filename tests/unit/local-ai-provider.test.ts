@@ -31,6 +31,37 @@ describe("LocalAIProvider", () => {
     expect(instagram.hashtags.length).toBeGreaterThanOrEqual(5)
   })
 
+  it("keeps the local Naver fallback at 500 characters after filtering", async () => {
+    const provider = new LocalAIProvider()
+    const brief = await provider.analyzeImages({
+      ...analyzeInput,
+      memo: "짧은 수련 메모 치료",
+      avoid: "치료,과장"
+    })
+    const naver = await provider.generateNaver({
+      ...analyzeInput,
+      memo: "짧은 수련 메모 치료",
+      avoid: "치료,과장",
+      brief
+    })
+
+    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
+    expect(naver.body).not.toContain("치료")
+    expect(naver.body).not.toContain("과장")
+  })
+
+  it("keeps the final Naver body long enough when filtering removes template vocabulary", async () => {
+    const provider = new LocalAIProvider()
+    const avoid = "오늘,수련,호흡,감각,움직임,차분,몸,마음,시간,리듬,과정,기록,사진,집중,변화,확인,경험,요가"
+    const brief = await provider.analyzeImages({ ...analyzeInput, avoid })
+    const naver = await provider.generateNaver({ ...analyzeInput, avoid, brief })
+
+    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
+    for (const expression of avoid.split(",")) {
+      expect(naver.body).not.toContain(expression)
+    }
+  })
+
   it("rewrites only the requested section without accepting images", async () => {
     const provider = new LocalAIProvider()
     const rewritten = await provider.rewriteSection({
