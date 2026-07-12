@@ -63,6 +63,20 @@ describe("Pages authentication middleware", () => {
     expect(next).not.toHaveBeenCalled()
   })
 
+  it("rejects the content generation API without a valid session", async () => {
+    const next = vi.fn(async () => staticResponse())
+
+    const response = await protectRequest(
+      new Request("https://studio.example/api/content/generate", { method: "POST" }),
+      env,
+      next,
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ message: "로그인이 필요해요." })
+    expect(next).not.toHaveBeenCalled()
+  })
+
   it("passes a valid signed session to static routing", async () => {
     const token = await createSession(env.AUTH_USERNAME, env.SESSION_SECRET)
     const request = new Request("https://studio.example/", {
