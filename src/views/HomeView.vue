@@ -28,7 +28,10 @@ function readableDate(value: string) {
           <img src="/app-icon.svg" alt="" />
           <h1>A.P YOGA Content Studio</h1>
         </div>
-        <LogoutButton @error="logoutError = $event" />
+        <div class="brand-lockup__actions">
+          <RouterLink class="header-action" to="/account/password">비밀번호 변경</RouterLink>
+          <LogoutButton @error="logoutError = $event" />
+        </div>
       </header>
       <p v-if="logoutError" class="auth-error logout-error" role="alert">{{ logoutError }}</p>
 

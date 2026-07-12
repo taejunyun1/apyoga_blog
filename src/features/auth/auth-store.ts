@@ -44,5 +44,10 @@ export const useAuthStore = defineStore("auth", () => {
     status.value = "unauthenticated"
   }
 
-  return { status, check, login, logout }
+  async function changePassword(currentPassword: string, newPassword: string) {
+    await client.changePassword(currentPassword, newPassword)
+    status.value = "unauthenticated"
+  }
+
+  return { status, check, login, logout, changePassword }
 })

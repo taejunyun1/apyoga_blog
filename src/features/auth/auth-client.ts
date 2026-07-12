@@ -2,6 +2,7 @@ export interface AuthClient {
   session(): Promise<boolean>
   login(username: string, password: string): Promise<void>
   logout(): Promise<void>
+  changePassword(currentPassword: string, newPassword: string): Promise<void>
 }
 
 async function message(response: Response): Promise<string> {
@@ -35,6 +36,16 @@ export class BrowserAuthClient implements AuthClient {
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: "{}"
+    })
+    if (!response.ok) throw new Error(await message(response))
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await fetch("/api/auth/password", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword })
     })
     if (!response.ok) throw new Error(await message(response))
   }

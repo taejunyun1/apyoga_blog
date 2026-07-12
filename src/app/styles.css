@@ -86,6 +86,25 @@ select:focus-visible {
   gap: 18px;
 }
 
+.brand-lockup__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: 1px solid var(--ap-border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 13px;
+  color: var(--ap-ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+
 .brand-lockup img {
   width: 76px;
   height: 76px;
@@ -285,6 +304,18 @@ select:focus-visible {
 .auth-card form {
   display: grid;
   gap: 18px;
+}
+
+.password-help {
+  margin-top: 20px;
+  line-height: 1.55;
+}
+
+.auth-cancel {
+  color: var(--ap-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  text-underline-offset: 3px;
 }
 
 .auth-field {

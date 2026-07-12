@@ -14,6 +14,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     routes: [
       { path: "/login", name: "login", component: LoginView, meta: { public: true } },
       { path: "/", name: "home", component: () => import("@/views/HomeView.vue") },
+      { path: "/account/password", name: "change-password", component: () => import("@/views/ChangePasswordView.vue") },
       { path: "/studio/:draftId", name: "studio", component: () => import("@/views/StudioView.vue") }
     ],
     scrollBehavior: () => ({ top: 0 })

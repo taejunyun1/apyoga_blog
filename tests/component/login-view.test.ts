@@ -25,11 +25,12 @@ function authClient(overrides: Partial<AuthClient> = {}): AuthClient {
     session: vi.fn().mockResolvedValue(false),
     login: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined),
+    changePassword: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
 }
 
-async function mountLogin(next?: string) {
+async function mountLogin(next?: string, password?: string) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const router = createRouter({
@@ -40,7 +41,13 @@ async function mountLogin(next?: string) {
       { path: "/studio/:draftId", component: { template: "<p>Studio</p>" } }
     ]
   })
-  await router.push({ path: "/login", query: next === undefined ? {} : { next } })
+  await router.push({
+    path: "/login",
+    query: {
+      ...(next === undefined ? {} : { next }),
+      ...(password === undefined ? {} : { password })
+    }
+  })
   await router.isReady()
   return { wrapper: mount(LoginView, { global: { plugins: [pinia, router] } }), router }
 }
@@ -135,6 +142,15 @@ describe("login view", () => {
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe("/")
+  })
+
+  it("announces a completed password change and shows the terminal reset guidance", async () => {
+    configureAuthClient(authClient())
+    const { wrapper } = await mountLogin(undefined, "changed")
+
+    expect(wrapper.get("[role=status]").text()).toBe("비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.")
+    expect(wrapper.get("[role=status]").classes()).not.toContain("visually-hidden")
+    expect(wrapper.text()).toContain("비밀번호를 잊으셨나요? 관리자 터미널에서 npm run auth:reset을 실행하세요.")
   })
 })
 

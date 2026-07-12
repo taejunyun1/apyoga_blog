@@ -25,7 +25,8 @@ function clientWith(session: AuthClient["session"]): AuthClient {
   return {
     session,
     login: vi.fn(),
-    logout: vi.fn()
+    logout: vi.fn(),
+    changePassword: vi.fn().mockResolvedValue(undefined)
   }
 }
 
@@ -81,6 +82,20 @@ describe("authentication routing", () => {
 
     expect(router.currentRoute.value.name).toBe("home")
     expect(wrapper.text()).toContain("새 글 만들기")
+    expect(wrapper.get('a[href="/account/password"]').text()).toBe("비밀번호 변경")
+  })
+
+  it("protects the registered password-change route", async () => {
+    configureAuthClient(clientWith(vi.fn().mockResolvedValue(false)))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = createAppRouter(createMemoryHistory())
+
+    await router.push("/account/password")
+
+    expect(router.currentRoute.value.name).toBe("login")
+    expect(router.currentRoute.value.query.next).toBe("/account/password")
+    expect(router.resolve("/account/password").name).toBe("change-password")
   })
 
   it("preserves a local private destination for an unauthenticated direct visit", async () => {

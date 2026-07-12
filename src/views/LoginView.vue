@@ -39,7 +39,9 @@ async function submit() {
         <p>A.P YOGA</p>
         <h1 id="login-heading">Content Studio 로그인</h1>
         <span id="login-description">수련의 기록을 안전하게 이어가세요.</span>
-        <span class="visually-hidden" role="status">로그인이 필요해요.</span>
+        <span :class="{ 'visually-hidden': route.query.password !== 'changed' }" role="status">
+          {{ route.query.password === "changed" ? "비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요." : "로그인이 필요해요." }}
+        </span>
       </header>
       <form aria-describedby="login-description" :aria-busy="busy" @submit.prevent="submit">
         <label class="auth-field" for="auth-username">
@@ -70,6 +72,7 @@ async function submit() {
           {{ busy ? "로그인 중…" : "로그인" }}
         </button>
       </form>
+      <p class="quiet-note password-help">비밀번호를 잊으셨나요? 관리자 터미널에서 npm run auth:reset을 실행하세요.</p>
     </section>
   </main>
 </template>
