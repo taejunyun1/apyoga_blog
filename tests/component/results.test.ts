@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/vue"
 import { describe, expect, it } from "vitest"
+import type { InstagramOutput } from "@/domain/studio"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
 import { naverOutput } from "../fixtures"
 
@@ -10,7 +11,24 @@ const naver = {
 }
 
 const failedInstagram = { status: "error" as const, error: "instagram unavailable", data: null }
+const instagramOutput = {
+  hookOptions: ["호흡으로 돌아온 저녁", "어깨의 감각을 살핀 시간", "차분하게 이어 간 수련"],
+  captionLong: "호흡을 따라 어깨와 흉곽의 감각을 천천히 살폈습니다.",
+  captionShort: "호흡과 함께한 오늘의 수련.",
+  hashtags: ["#에이피요가", "#요가수련"],
+  coverImageId: "",
+  imageOrder: [],
+  generationSource: "openai",
+  qualityChecks: {}
+} satisfies InstagramOutput
+const successfulInstagram = { status: "success" as const, error: null, data: instagramOutput }
 const review = { medicalClaims: [], repetitions: [], privacyWarnings: [], passed: true }
+const fallbackNotice = "AI 연결이 불안정해 로컬 초안을 사용했어요."
+
+function expectEnabledControl(label: string) {
+  const control = screen.getByRole("button", { name: label }) as HTMLButtonElement
+  expect(control.disabled).toBe(false)
+}
 
 describe("ResultEditor", () => {
   it("keeps Naver visible and retries only failed Instagram", async () => {
@@ -49,18 +67,54 @@ describe("ResultEditor", () => {
     expect(screen.getByRole("status").textContent).toContain("클립보드에 복사했어요")
   })
 
-  it("explains a local fallback without hiding the generated result", () => {
+  it("shows the fallback status only while the local Naver channel is active", async () => {
     render(ResultEditor, {
       props: {
         naver: { ...naver, data: { ...naverOutput, generationSource: "local-fallback" } },
-        instagram: failedInstagram,
+        instagram: successfulInstagram,
         review,
         copyFallback: null
       }
     })
 
-    expect(screen.getByText("AI 연결이 불안정해 로컬 초안을 사용했어요.")).toBeTruthy()
-    expect(screen.getByLabelText("본문 편집")).toBeTruthy()
-    expect(screen.getByRole("button", { name: "본문 복사" })).toBeTruthy()
+    expect(screen.getByRole("status").textContent).toContain(fallbackNotice)
+    expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).disabled).toBe(false)
+    expectEnabledControl("도입부 감성 줄이기")
+    expectEnabledControl("본문 복사")
+
+    await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
+
+    expect(screen.queryByText(fallbackNotice)).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
+    expect((screen.getByLabelText("기본형 캡션") as HTMLTextAreaElement).disabled).toBe(false)
+    expectEnabledControl("첫 문장 변경")
+    expectEnabledControl("캡션 복사")
+  })
+
+  it("shows the fallback status only while the local Instagram channel is active", async () => {
+    render(ResultEditor, {
+      props: {
+        naver,
+        instagram: {
+          ...successfulInstagram,
+          data: { ...instagramOutput, generationSource: "local-fallback" }
+        },
+        review,
+        copyFallback: null
+      }
+    })
+
+    expect(screen.queryByText(fallbackNotice)).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
+    expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).disabled).toBe(false)
+    expectEnabledControl("도입부 감성 줄이기")
+    expectEnabledControl("본문 복사")
+
+    await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
+
+    expect(screen.getByRole("status").textContent).toContain(fallbackNotice)
+    expect((screen.getByLabelText("기본형 캡션") as HTMLTextAreaElement).disabled).toBe(false)
+    expectEnabledControl("첫 문장 변경")
+    expectEnabledControl("캡션 복사")
   })
 })

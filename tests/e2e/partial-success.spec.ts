@@ -38,6 +38,7 @@ async function seedPartialSuccess(page: Page) {
         imagePlacements: [],
         hashtags: ["#에이피요가", "#오늘의요가"],
         classInfo: "수업 정보는 게시 전에 확인해 주세요.",
+        generationSource: "openai",
         qualityChecks: { safe: true }
       }
     },
