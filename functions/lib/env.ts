@@ -4,11 +4,26 @@ export interface RateLimitKV {
   delete(key: string): Promise<void>
 }
 
+export interface AuthDatabaseStatement {
+  bind(...values: unknown[]): AuthDatabaseStatement
+  first<T>(): Promise<T | null>
+  run(): Promise<{ success: boolean }>
+}
+
+export interface AuthDatabaseSession {
+  prepare(query: string): AuthDatabaseStatement
+}
+
+export interface AuthDatabase {
+  withSession(constraint: "first-primary"): AuthDatabaseSession
+}
+
 export interface AuthEnv {
   AUTH_USERNAME: string
   AUTH_PASSWORD_HASH: string
   SESSION_SECRET: string
   AUTH_RATE_LIMIT: RateLimitKV
+  AUTH_DB?: AuthDatabase
 }
 
 export interface ContentEnv extends AuthEnv {
