@@ -107,7 +107,7 @@ Pages에는 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET` 세 secret�
 npm run auth:provision
 ```
 
-비밀번호를 잊었거나 로그인할 수 없는 복구 상황에서는 대화형 TTY에서 아래 초기화 명령을 사용합니다. `auth:provision`은 최초 설정용이고 `auth:reset`은 기존 관리자 계정의 비밀번호 복구용입니다.
+비밀번호를 잊었거나 로그인할 수 없는 복구 상황에서는 대화형 TTY에서 아래 초기화 명령을 사용합니다. `auth:provision`은 최초 설정용이고 `auth:reset`은 기존 관리자 계정의 비밀번호 복구용입니다. 명령이 묻는 기존 관리자 아이디는 초기화 후 로그인 확인에만 사용하며, 아이디는 변경하지 않습니다.
 
 ```bash
 npm run auth:reset
