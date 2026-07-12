@@ -1,6 +1,12 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "ap-yoga-content-studio",
-  "pages_build_output_dir": "./dist",
-  "compatibility_date": "2026-07-11"
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "ap-yoga-content-studio",
+	"pages_build_output_dir": "./dist",
+	"compatibility_date": "2026-07-11",
+	"kv_namespaces": [
+		{
+			"binding": "AUTH_RATE_LIMIT",
+			"id": "06dfdd53bfeb46c398bd156a8042099b"
+		}
+	]
 }

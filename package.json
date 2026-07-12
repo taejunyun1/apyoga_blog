@@ -16,6 +16,7 @@
     "typecheck": "vue-tsc --noEmit",
     "typecheck:functions": "tsc -p tsconfig.functions.json --noEmit",
     "icons": "node scripts/generate-icons.mjs",
+    "auth:provision": "node scripts/provision-auth.mjs",
     "predeploy:cloudflare": "npm run build",
     "deploy:cloudflare": "wrangler pages deploy --branch master"
   },
