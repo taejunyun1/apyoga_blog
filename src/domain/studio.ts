@@ -3,6 +3,7 @@ export type WritingMode = "auto" | "record" | "essay" | "philosophy" | "body-sen
 export type Tone = "plain" | "emotional" | "deep"
 export type Channel = "naver" | "instagram"
 export type ChannelStatus = "idle" | "loading" | "success" | "error"
+export type GenerationSource = "openai" | "local-fallback"
 export type MaskStyle = "blur" | "white" | "sticker"
 
 export interface FaceMask {
@@ -55,6 +56,7 @@ export interface NaverOutput {
   imagePlacements: Array<{ imageId: string; afterParagraph: number; caption: string }>
   hashtags: string[]
   classInfo: string
+  generationSource: GenerationSource
   qualityChecks: Record<string, boolean>
 }
 
@@ -65,6 +67,7 @@ export interface InstagramOutput {
   hashtags: string[]
   coverImageId: string
   imageOrder: string[]
+  generationSource: GenerationSource
   qualityChecks: Record<string, boolean>
 }
 

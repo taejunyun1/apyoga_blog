@@ -147,6 +147,7 @@ export class LocalAIProvider implements AIProvider {
       })),
       hashtags: hashtags(input.brief.bodyFocus),
       classInfo: "수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요.",
+      generationSource: "local-fallback",
       qualityChecks: { avoidedExpressionRemoved: !containsAvoidedExpression(body, input.avoid), includesRequiredPhrase: body.includes(required) }
     }
   }
@@ -167,6 +168,7 @@ export class LocalAIProvider implements AIProvider {
       hashtags: hashtags(input.brief.bodyFocus),
       coverImageId: input.brief.recommendedCoverImageId,
       imageOrder: input.brief.recommendedImageOrder,
+      generationSource: "local-fallback",
       qualityChecks: { distinctFromNaver: true, avoidedExpressionRemoved: !captionLong.includes(input.avoid) }
     }
   }

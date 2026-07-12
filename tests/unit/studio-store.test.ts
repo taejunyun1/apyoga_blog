@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from "pinia"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
+import { OpenAIProvider } from "@/adapters/openai-provider"
 import { createDraft, type ContentBrief, type InstagramOutput } from "@/domain/studio"
 import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
 import { analyzeInput, studioImages } from "../fixtures"
@@ -67,6 +68,25 @@ describe("studio workflow store", () => {
     expect(store.draft?.naver.status).toBe("success")
     expect(store.draft?.instagram.status).toBe("error")
     expect(store.draft?.step).toBe("results")
+  })
+
+  it("keeps both channels successful when only Naver uses local fallback", async () => {
+    const repository = new InMemoryRepository()
+    const remoteInstagram = await new LocalAIProvider().generateInstagram({ ...analyzeInput, brief })
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { channel: "naver" | "instagram" }
+      if (request.channel === "naver") return new Response(null, { status: 502 })
+      const { generationSource: _generationSource, qualityChecks: _qualityChecks, ...data } = remoteInstagram
+      return Response.json({ channel: "instagram", source: "openai", data })
+    })
+    configureStudioServices({ repository, ai: new OpenAIProvider({ fetcher }) })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+
+    await store.generateAll()
+
+    expect(store.draft.naver).toMatchObject({ status: "success", data: { generationSource: "local-fallback" } })
+    expect(store.draft.instagram).toMatchObject({ status: "success", data: { generationSource: "openai" } })
   })
 
   it("never analyzes images while rewriting one section", async () => {
@@ -176,6 +196,7 @@ describe("studio workflow store", () => {
   it("returns selectable fallback text when clipboard permission is denied", async () => {
     configureStudioServices({
       repository: new InMemoryRepository(),
+      ai: new LocalAIProvider(),
       clipboard: { copy: vi.fn().mockResolvedValue({ ok: false, error: "denied" }) }
     })
     const store = useStudioStore()
@@ -190,7 +211,7 @@ describe("studio workflow store", () => {
 
   it("stores finalized text history without requiring image retention", async () => {
     const repository = new InMemoryRepository()
-    configureStudioServices({ repository })
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
     const store = useStudioStore()
     store.draft = readyDraft()
     await store.generateAll()
@@ -202,7 +223,7 @@ describe("studio workflow store", () => {
   })
 
   it("moves the chosen channel option to the copy position", async () => {
-    configureStudioServices({ repository: new InMemoryRepository() })
+    configureStudioServices({ repository: new InMemoryRepository(), ai: new LocalAIProvider() })
     const store = useStudioStore()
     store.draft = readyDraft()
     await store.generateAll()

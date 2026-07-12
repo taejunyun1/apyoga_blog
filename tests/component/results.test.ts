@@ -12,6 +12,7 @@ const naver = {
     imagePlacements: [],
     hashtags: ["#에이피요가", "#요가수련"],
     classInfo: "예약 정보 확인",
+    generationSource: "local-fallback" as const,
     qualityChecks: {}
   }
 }

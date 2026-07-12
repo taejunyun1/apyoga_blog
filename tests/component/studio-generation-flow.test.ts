@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/vue"
 import { createPinia, setActivePinia } from "pinia"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it } from "vitest"
+import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import StudioView from "@/views/StudioView.vue"
 import { createDraft } from "@/domain/studio"
 import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
@@ -13,7 +14,7 @@ afterEach(() => resetStudioServices())
 describe("studio generation flow", () => {
   it("moves from memo through brief confirmation to two channel results", async () => {
     const repository = new InMemoryRepository()
-    configureStudioServices({ repository })
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useStudioStore()

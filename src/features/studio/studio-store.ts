@@ -3,7 +3,7 @@ import { ref } from "vue"
 import { BrowserClipboard } from "@/adapters/browser-clipboard"
 import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-repository"
 import { applyMasksToBlob, prepareImage, validateImageSelection } from "@/adapters/image-processor"
-import { LocalAIProvider } from "@/adapters/local-ai-provider"
+import { OpenAIProvider } from "@/adapters/openai-provider"
 import { MediaPipeFaceDetector, type DetectedFace } from "@/adapters/mediapipe-face-detector"
 import type { AIProvider } from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
@@ -34,7 +34,7 @@ export interface StudioServices {
 function defaultServices(): StudioServices {
   return {
     repository: new DexieStudioRepository(),
-    ai: new LocalAIProvider(),
+    ai: new OpenAIProvider(),
     clipboard: new BrowserClipboard(),
     prepareImage,
     applyMasks: applyMasksToBlob,
