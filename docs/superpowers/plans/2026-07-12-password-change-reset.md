@@ -297,18 +297,20 @@ it("creates salted records compatible with verification", async () => {
   await expect(verifyPassword("wrong-password-123", first)).resolves.toBe(false)
 })
 
-it("binds a v2 session to the active credential version", async () => {
+it("binds every newly issued session to the active credential version", async () => {
   const token = await createSession("studio-user", "dGVzdC1zZWNyZXQ", "version-2", 1_000)
   await expect(verifySession(token, "studio-user", "dGVzdC1zZWNyZXQ", "version-2", false, 1_001)).resolves.toBe(true)
   await expect(verifySession(token, "studio-user", "dGVzdC1zZWNyZXQ", "version-3", false, 1_001)).resolves.toBe(false)
 })
 
 it("allows a legacy v1 session only while the secret credential is active", async () => {
-  const legacy = await createSession("studio-user", "dGVzdC1zZWNyZXQ", undefined, 1_000)
+  const legacy = await createLegacySessionToken("studio-user", "dGVzdC1zZWNyZXQ", 1_000)
   await expect(verifySession(legacy, "studio-user", "dGVzdC1zZWNyZXQ", "secret-version", true, 1_001)).resolves.toBe(true)
   await expect(verifySession(legacy, "studio-user", "dGVzdC1zZWNyZXQ", "d1-version", false, 1_001)).resolves.toBe(false)
 })
 ```
+
+Define `createLegacySessionToken` only inside the test file by reproducing the old `v: 1` payload and HMAC signature. Production code must not export or retain any path that can issue a new `v: 1` session.
 
 Add login/session/middleware tests that use a fake `AUTH_DB` row and assert:
 
@@ -344,11 +346,13 @@ export async function createPasswordRecord(password: string): Promise<string> {
 }
 ```
 
-Change `createSession` so an omitted version emits the old `v: 1` payload only for tests/backward compatibility, while a supplied version emits:
+Change `createSession` to require `credentialVersion: string` and always emit:
 
 ```ts
 { v: 2, sub: username, iat: nowSeconds, exp: nowSeconds + SESSION_SECONDS, cv: credentialVersion }
 ```
+
+Update every production caller and existing unit test to pass an explicit credential version. Legacy `v: 1` support exists only in `verifySession`; there is no production issuance function or optional version parameter.
 
 Change verification to:
 
@@ -662,6 +666,9 @@ async function submit() {
   error.value = null
   if (newPassword.value !== confirmPassword.value) {
     error.value = "새 비밀번호 확인이 일치하지 않아요."
+    currentPassword.value = ""
+    newPassword.value = ""
+    confirmPassword.value = ""
     return
   }
   busy.value = true
