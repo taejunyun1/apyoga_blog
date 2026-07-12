@@ -101,13 +101,23 @@ Direct Upload 프로젝트는 같은 프로젝트에서 Git integration 방식�
 
 Pages에는 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET` 세 secret과 로그인 시도 제한용 `AUTH_RATE_LIMIT` KV binding이 필요합니다. 실제 아이디와 비밀번호, 파생 해시, 세션 secret 값은 문서·명령 기록·저장소에 남기지 않습니다.
 
-최초 등록과 자격 증명 회전은 대화형 터미널에서 아래 명령만 사용합니다. 아이디와 비밀번호는 이 명령의 프롬프트를 통해서만 입력하고, 개별 `wrangler pages secret put` 명령이나 파일에 직접 넣지 마세요.
+최초 등록은 대화형 터미널에서 아래 명령만 사용합니다. 아이디와 비밀번호는 이 명령의 프롬프트를 통해서만 입력하고, 개별 `wrangler pages secret put` 명령이나 파일에 직접 넣지 마세요.
 
 ```bash
 npm run auth:provision
 ```
 
-이 명령은 비밀번호 해시와 새 `SESSION_SECRET`을 함께 등록하므로 기존 로그인 세션도 무효화합니다. 로그인 쿠키의 최대 수명은 30일이며 로그아웃 또는 자격 증명 회전 시 그보다 일찍 종료됩니다.
+비밀번호를 잊었거나 로그인할 수 없는 복구 상황에서는 대화형 TTY에서 아래 초기화 명령을 사용합니다. `auth:provision`은 최초 설정용이고 `auth:reset`은 기존 관리자 계정의 비밀번호 복구용입니다.
+
+```bash
+npm run auth:reset
+```
+
+초기화 명령은 새 비밀번호와 확인 값을 숨김 입력으로 받은 뒤, `AUTH_PASSWORD_HASH`와 새 `SESSION_SECRET`을 Wrangler 표준 입력으로 등록하고, 프로덕션 배포를 완료한 다음, D1의 `auth_credentials` override를 삭제합니다. 마지막으로 canonical 프로덕션 로그인 endpoint에서 새 비밀번호 로그인이 `204`인지 확인하고 확인 세션을 로그아웃한 뒤에만 완료를 알립니다. 새 `SESSION_SECRET` 등록은 모든 기존 로그인 세션을 무효화합니다.
+
+명령을 중단했거나 secret 등록·배포·D1 삭제·로그인 확인 중 하나라도 실패했다면 초기화가 완료된 것으로 간주하지 마세요. 특히 배포 실패 시 D1 override를 유지하므로 기존 앱 비밀번호가 계속 동작합니다. D1 삭제가 실패하면 원인을 해결한 뒤 `npm run auth:reset` 전체를 다시 실행해야 합니다. 이 작업은 반드시 대화형 TTY에서 실행하며 평문 비밀번호, 파생 해시, session secret을 명령 인수·파일·로그에 남기지 않습니다.
+
+`auth:provision`과 `auth:reset` 모두 비밀번호 해시와 새 `SESSION_SECRET`을 함께 등록하므로 기존 로그인 세션을 무효화합니다. 로그인 쿠키의 최대 수명은 30일이며 로그아웃 또는 자격 증명 회전 시 그보다 일찍 종료됩니다.
 
 로그인 실패 횟수는 Cloudflare KV에 저장됩니다. KV는 eventual consistency 방식이므로 엣지 위치가 다른 동시 요청에서는 제한 상태 반영이 잠시 늦거나 서로 다르게 보일 수 있습니다. 강한 일관성이 필요한 계정 잠금 수단으로 사용하지 마세요.
 
