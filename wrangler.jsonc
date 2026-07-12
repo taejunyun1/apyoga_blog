@@ -9,5 +9,12 @@
 			"binding": "AUTH_RATE_LIMIT",
 			"id": "06dfdd53bfeb46c398bd156a8042099b"
 		}
+	],
+	"d1_databases": [
+		{
+			"binding": "AUTH_DB",
+			"database_name": "ap-yoga-auth",
+			"database_id": "1977c3b0-2ddc-43c8-908b-338571ae7b3d"
+		}
 	]
 }

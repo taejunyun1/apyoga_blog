@@ -26,6 +26,16 @@ describe("Cloudflare Pages deployment", () => {
     expect(config.compatibility_flags).toEqual(["nodejs_compat"])
   })
 
+  it("binds the production authentication D1 database and migration", () => {
+    const config = JSON.parse(readFileSync(path.join(root, "wrangler.jsonc"), "utf8")) as Record<string, unknown>
+    const d1 = (config.d1_databases as Array<Record<string, string>> | undefined) ?? []
+    expect(d1).toHaveLength(1)
+    expect(d1[0]).toMatchObject({ binding: "AUTH_DB", database_name: "ap-yoga-auth" })
+    expect(d1[0].database_id).toMatch(/^[a-f0-9-]{36}$/)
+    expect(readFileSync(path.join(root, "migrations/0001_auth_credentials.sql"), "utf8"))
+      .toContain("CREATE TABLE IF NOT EXISTS auth_credentials")
+  })
+
   it("builds before invoking the checked-in Wrangler CLI", () => {
     const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>
