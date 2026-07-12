@@ -29,6 +29,10 @@ function containsAvoidedExpression(text: string, avoid: string): boolean {
   return avoidedExpressions(avoid).some((expression) => text.includes(expression))
 }
 
+function containsAvoidedExpressionIn(texts: string[], avoid: string): boolean {
+  return texts.some((text) => containsAvoidedExpression(text, avoid))
+}
+
 function safePaddingCharacter(avoid: string): string {
   const avoided = avoidedExpressions(avoid)
   const preferred = ["·", "○", "△", "◇", "☆", "※", "가", "나", "다"]
@@ -127,28 +131,44 @@ export class LocalAIProvider implements AIProvider {
     const focus = input.brief.bodyFocus.join("과 ")
     const required = requiredPhrase(input)
     const body = naverBody(input, focus, required)
+    const titles = [
+      `${focus}, 오늘의 요가 수련 기록`,
+      `${required}과 함께 천천히 돌아본 시간`,
+      "몸의 감각을 깨우는 A.P YOGA 수련"
+    ]
+    const introOptions = [
+      `${input.brief.overallMood} 속에서 오늘의 수련을 시작했습니다.`,
+      `바쁜 하루 끝, ${required}에 잠시 머물렀습니다.`,
+      `${focus}의 감각을 차분하게 살펴본 시간이었어요.`
+    ]
+    const imagePlacements = input.brief.recommendedImageOrder.map((imageId, index) => ({
+      imageId,
+      afterParagraph: Math.min(index + 1, 3),
+      caption: `${focus}의 감각을 살펴보는 수련 장면`
+    }))
+    const outputHashtags = hashtags(input.brief.bodyFocus)
+    const classInfo = "수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요."
+    const publishableText = [
+      ...titles,
+      ...introOptions,
+      body,
+      ...imagePlacements.map((placement) => placement.caption),
+      ...outputHashtags,
+      classInfo
+    ]
 
     return {
-      titles: [
-        `${focus}, 오늘의 요가 수련 기록`,
-        `${required}과 함께 천천히 돌아본 시간`,
-        `몸의 감각을 깨우는 A.P YOGA 수련`
-      ],
-      introOptions: [
-        `${input.brief.overallMood} 속에서 오늘의 수련을 시작했습니다.`,
-        `바쁜 하루 끝, ${required}에 잠시 머물렀습니다.`,
-        `${focus}의 감각을 차분하게 살펴본 시간이었어요.`
-      ],
+      titles,
+      introOptions,
       body,
-      imagePlacements: input.brief.recommendedImageOrder.map((imageId, index) => ({
-        imageId,
-        afterParagraph: Math.min(index + 1, 3),
-        caption: `${focus}의 감각을 살펴보는 수련 장면`
-      })),
-      hashtags: hashtags(input.brief.bodyFocus),
-      classInfo: "수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요.",
+      imagePlacements,
+      hashtags: outputHashtags,
+      classInfo,
       generationSource: "local-fallback",
-      qualityChecks: { avoidedExpressionRemoved: !containsAvoidedExpression(body, input.avoid), includesRequiredPhrase: body.includes(required) }
+      qualityChecks: {
+        avoidedExpressionRemoved: !containsAvoidedExpressionIn(publishableText, input.avoid),
+        includesRequiredPhrase: body.includes(required)
+      }
     }
   }
 
@@ -160,16 +180,19 @@ export class LocalAIProvider implements AIProvider {
       input.avoid
     )
     const captionShort = withoutAvoided(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
+    const hookOptions = ["몸이 먼저 알아차린 작은 변화", `${required}으로 돌아오는 시간`, `오늘은 ${focus}에서 시작했어요`]
+    const outputHashtags = hashtags(input.brief.bodyFocus)
+    const publishableText = [...hookOptions, captionLong, captionShort, ...outputHashtags]
 
     return {
-      hookOptions: ["몸이 먼저 알아차린 작은 변화", `${required}으로 돌아오는 시간`, `오늘은 ${focus}에서 시작했어요`],
+      hookOptions,
       captionLong,
       captionShort,
-      hashtags: hashtags(input.brief.bodyFocus),
+      hashtags: outputHashtags,
       coverImageId: input.brief.recommendedCoverImageId,
       imageOrder: input.brief.recommendedImageOrder,
       generationSource: "local-fallback",
-      qualityChecks: { distinctFromNaver: true, avoidedExpressionRemoved: !captionLong.includes(input.avoid) }
+      qualityChecks: { avoidedExpressionRemoved: !containsAvoidedExpressionIn(publishableText, input.avoid) }
     }
   }
 

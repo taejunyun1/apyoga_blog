@@ -50,6 +50,22 @@ describe("LocalAIProvider", () => {
     expect(naver.body).not.toContain("과장")
   })
 
+  it("reports forbidden Naver copy outside the final body and checks the delivered body for the required phrase", async () => {
+    const provider = new LocalAIProvider()
+    const input = { ...analyzeInput, mustInclude: "치료", avoid: "치료" }
+    const brief = await provider.analyzeImages(input)
+
+    const naver = await provider.generateNaver({ ...input, brief })
+
+    expect(naver.body.trim().length).toBeGreaterThanOrEqual(500)
+    expect(naver.body).not.toContain("치료")
+    expect([...naver.titles, ...naver.introOptions].join("\n")).toContain("치료")
+    expect(naver.qualityChecks).toEqual({
+      avoidedExpressionRemoved: false,
+      includesRequiredPhrase: false,
+    })
+  })
+
   it("keeps the final Naver body long enough when filtering removes template vocabulary", async () => {
     const provider = new LocalAIProvider()
     const avoid = "오늘,수련,호흡,감각,움직임,차분,몸,마음,시간,리듬,과정,기록,사진,집중,변화,확인,경험,요가"
@@ -96,6 +112,19 @@ describe("LocalAIProvider", () => {
     expect(instagram.captionShort).toContain("치료")
     expect(instagram.captionLong).not.toContain("과장")
     expect(instagram.captionShort).not.toContain("과장")
+  })
+
+  it("reports forbidden Instagram copy outside the filtered captions without inventing channel distinctness", async () => {
+    const provider = new LocalAIProvider()
+    const input = { ...analyzeInput, mustInclude: "치료", avoid: "치료" }
+    const brief = await provider.analyzeImages(input)
+
+    const instagram = await provider.generateInstagram({ ...input, brief })
+
+    expect(instagram.captionLong).not.toContain("치료")
+    expect(instagram.captionShort).not.toContain("치료")
+    expect(instagram.hookOptions.join("\n")).toContain("치료")
+    expect(instagram.qualityChecks).toEqual({ avoidedExpressionRemoved: false })
   })
 
   it("rewrites only the requested section without accepting images", async () => {
