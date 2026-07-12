@@ -76,6 +76,7 @@ let password = ""
 try {
   password = String(await readHidden("비밀번호: "))
   if (!username || !password) throw new Error("아이디와 비밀번호를 입력해 주세요.")
+  if (password.length > 256) throw new Error("비밀번호는 256자 이하로 입력해 주세요.")
 
   const salt = randomBytes(16)
   const derived = pbkdf2Sync(password, salt, 600_000, 32, "sha256")

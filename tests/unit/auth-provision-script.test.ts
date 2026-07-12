@@ -11,4 +11,13 @@ describe("authentication provisioning script", () => {
     expect(source).not.toContain("console.log(password")
     expect(source).not.toContain("AUTH_SETUP_PASSWORD")
   })
+
+  it("rejects passwords longer than 256 code units before provisioning secrets", () => {
+    const source = readFileSync("scripts/provision-auth.mjs", "utf8")
+    const validationIndex = source.indexOf("password.length > 256")
+    const firstSecretIndex = source.indexOf('putSecret("AUTH_USERNAME"')
+
+    expect(validationIndex).toBeGreaterThan(-1)
+    expect(validationIndex).toBeLessThan(firstSecretIndex)
+  })
 })
