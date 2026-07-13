@@ -202,6 +202,26 @@ describe("studio workflow store", () => {
     expect(store.draft.instagram).toEqual(before)
   })
 
+  it("returns the normalized hashtag text that is visible and persisted", async () => {
+    class WhitespaceHashtagProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "#요가\n  #호흡" }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new WhitespaceHashtagProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const result = await store.rewrite({ channel: "instagram", section: "hashtags", instruction: "해시태그 변경" })
+    const visible = store.draft.instagram.data?.hashtags.join(" ")
+    const persisted = repository.drafts.get(store.draft.id)?.instagram.data?.hashtags.join(" ")
+
+    expect(result).toEqual({ section: "hashtags", text: visible })
+    expect(persisted).toBe(visible)
+  })
+
   it("rolls back a rewritten candidate that introduces a new medical claim", async () => {
     class MedicalClaimProvider extends LocalAIProvider {
       override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
@@ -213,6 +233,31 @@ describe("studio workflow store", () => {
     const store = useStudioStore()
     store.draft = readyDraft()
     await store.generateAll()
+    const before = snapshot({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt })
+    const saveCalls = repository.saveCalls
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("의료")
+    expect({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt }).toEqual(before)
+    expect(repository.saveCalls).toBe(saveCalls)
+  })
+
+  it("rejects a second direct medical claim even when review normalizes it to an existing warning", async () => {
+    class SecondMedicalClaimProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "이 자세로 두통이 완치됩니다." }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new SecondMedicalClaimProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    await store.editResult({
+      channel: "instagram",
+      section: "caption",
+      text: "이 수련으로 통증이 완치됩니다."
+    })
     const before = snapshot({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt })
     const saveCalls = repository.saveCalls
 
