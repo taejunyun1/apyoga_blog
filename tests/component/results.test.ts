@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/vue"
 import { describe, expect, it } from "vitest"
 import type { InstagramOutput } from "@/domain/studio"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
-import { naverOutput } from "../fixtures"
+import { naverOutput, studioImages } from "../fixtures"
 
 const naver = {
   status: "success" as const,
@@ -24,6 +24,7 @@ const instagramOutput = {
 const successfulInstagram = { status: "success" as const, error: null, data: instagramOutput }
 const review = { medicalClaims: [], repetitions: [], privacyWarnings: [], passed: true }
 const fallbackNotice = "AI 연결이 불안정해 로컬 초안을 사용했어요."
+const images = studioImages(3)
 
 function expectEnabledControl(label: string) {
   const control = screen.getByRole("button", { name: label }) as HTMLButtonElement
@@ -32,14 +33,14 @@ function expectEnabledControl(label: string) {
 
 describe("ResultEditor", () => {
   it("describes generated drafts without claiming every result is local demo output", () => {
-    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null } })
+    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images } })
 
     expect(screen.getByText(/생성된 초안/)).toBeTruthy()
     expect(screen.queryByText(/로컬 데모 AI/)).toBeNull()
   })
 
   it("keeps Naver visible and retries only failed Instagram", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
 
     expect(screen.getByText("네이버 글이 준비됐어요")).toBeTruthy()
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
@@ -48,21 +49,21 @@ describe("ResultEditor", () => {
   })
 
   it("requests only a selected-section rewrite", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
     await fireEvent.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
 
     expect(emitted().rewrite?.[0]).toEqual([{ channel: "naver", section: "intro", instruction: "감성 줄이기" }])
   })
 
   it("emits the selected title so copy uses the chosen option", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
     await fireEvent.click(screen.getByLabelText("어깨를 여는 시간"))
 
     expect(emitted()["select-option"]?.[0]).toEqual([{ channel: "naver", kind: "title", index: 1 }])
   })
 
   it("keeps the option moved to the copy position visibly selected", async () => {
-    const view = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null } })
+    const view = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
     const chosen = naverOutput.titles[1]
 
     await fireEvent.click(screen.getByLabelText(chosen))
@@ -76,7 +77,8 @@ describe("ResultEditor", () => {
       },
       instagram: failedInstagram,
       review,
-      copyFallback: null
+      copyFallback: null,
+      images
     })
 
     expect((screen.getByLabelText(chosen) as HTMLInputElement).checked).toBe(true)
@@ -84,7 +86,7 @@ describe("ResultEditor", () => {
   })
 
   it("requests simple feedback for channel and direct-text changes", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images } })
 
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
     await fireEvent.update(screen.getByLabelText("기본형 캡션"), "직접 수정한 캡션")
@@ -98,7 +100,7 @@ describe("ResultEditor", () => {
   })
 
   it("shows selectable text when clipboard copy fails", () => {
-    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: "복사할 전체 글" } })
+    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: "복사할 전체 글", images } })
 
     expect(screen.getByText("길게 눌러 복사해 주세요")).toBeTruthy()
     expect(screen.queryByRole("alert")).toBeNull()
@@ -111,7 +113,8 @@ describe("ResultEditor", () => {
         naver: { ...naver, data: { ...naverOutput, generationSource: "local-fallback" } },
         instagram: successfulInstagram,
         review,
-        copyFallback: null
+        copyFallback: null,
+        images
       }
     })
 
@@ -138,7 +141,8 @@ describe("ResultEditor", () => {
           data: { ...instagramOutput, generationSource: "local-fallback" }
         },
         review,
-        copyFallback: null
+        copyFallback: null,
+        images
       }
     })
 
@@ -154,5 +158,44 @@ describe("ResultEditor", () => {
     expect((screen.getByLabelText("기본형 캡션") as HTMLTextAreaElement).disabled).toBe(false)
     expectEnabledControl("첫 문장 변경")
     expectEnabledControl("캡션 복사")
+  })
+
+  it("connects channel copy to its thumbnail order", async () => {
+    render(ResultEditor, {
+      props: {
+        naver: {
+          ...naver,
+          data: {
+            ...naverOutput,
+            imagePlacements: [
+              { imageId: "image-2", afterParagraph: 4, caption: "호흡을 마무리하는 장면" },
+              { imageId: "image-1", afterParagraph: 1, caption: "수련을 여는 장면" }
+            ]
+          }
+        },
+        instagram: {
+          ...successfulInstagram,
+          data: {
+            ...instagramOutput,
+            imageOrder: ["image-3", "image-1", "image-2"],
+            coverImageId: "image-3"
+          }
+        },
+        review,
+        copyFallback: null,
+        images
+      }
+    })
+
+    const naverMap = screen.getByRole("region", { name: "사진과 글 배치" })
+    expect(naverMap.querySelectorAll("li")[0].textContent).toContain("문단 1 뒤")
+    expect(screen.getByRole("img", { name: "수련을 여는 장면" }).getAttribute("src")).toBe("blob:photo-1")
+
+    await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
+
+    const instagramMap = screen.getByRole("region", { name: "사진 게시 순서" })
+    expect(instagramMap.querySelectorAll("li")[0].textContent).toContain("1번째")
+    expect(instagramMap.querySelectorAll("li")[0].textContent).toContain("대표 사진")
+    expect(screen.getByRole("img", { name: "1번째 사진 photo-3.jpg" }).getAttribute("src")).toBe("blob:photo-3")
   })
 })

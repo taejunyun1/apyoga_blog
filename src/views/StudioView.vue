@@ -203,6 +203,7 @@ async function finalizeResult() {
         :instagram="store.draft.instagram"
         :review="store.draft.review"
         :copy-fallback="copyFallback"
+        :images="store.draft.images"
         @retry-channel="retryChannel"
         @rewrite="rewriteResult"
         @select-option="selectResultOption"

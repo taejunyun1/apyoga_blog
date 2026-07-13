@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import type { ChannelResult, InstagramOutput, NaverOutput, ReviewOutput } from "@/domain/studio"
+import type { ChannelResult, InstagramOutput, NaverOutput, ReviewOutput, StudioImage } from "@/domain/studio"
 import ChannelTabs from "./ChannelTabs.vue"
 import CopyActionGroup from "./CopyActionGroup.vue"
 import PublishChecklist from "./PublishChecklist.vue"
+import ResultImageMap from "./ResultImageMap.vue"
 import RewriteActionSheet from "./RewriteActionSheet.vue"
 
 defineProps<{
@@ -11,6 +12,7 @@ defineProps<{
   instagram: ChannelResult<InstagramOutput>
   review: ReviewOutput
   copyFallback: string | null
+  images: StudioImage[]
 }>()
 const emit = defineEmits<{
   "retry-channel": [channel: "naver" | "instagram"]
@@ -47,7 +49,13 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input type="radio" name="naver-title" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
         <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input type="radio" name="naver-intro" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
         <label class="field-label">본문 편집<textarea :value="naver.data.body" rows="12" @change="editText('naver', 'body', $event)" /></label>
-        <ul v-if="naver.data.imagePlacements.length" class="placement-list"><li v-for="placement in naver.data.imagePlacements" :key="placement.imageId">문단 {{ placement.afterParagraph }} 뒤 · {{ placement.caption }}</li></ul>
+        <ResultImageMap
+          channel="naver"
+          :images="images"
+          :placements="naver.data.imagePlacements"
+          :image-order="[]"
+          cover-image-id=""
+        />
         <p class="class-info">{{ naver.data.classInfo }}</p>
         <p class="hashtag-line">{{ naver.data.hashtags.join(' ') }}</p>
         <RewriteActionSheet channel="naver" @rewrite="emit('rewrite', $event)" />
@@ -67,6 +75,13 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input type="radio" name="instagram-hook" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
         <label class="field-label">기본형 캡션<textarea :value="instagram.data.captionLong" rows="9" @change="editText('instagram', 'caption', $event)" /></label>
         <label class="field-label">짧은 캡션<textarea :value="instagram.data.captionShort" rows="3" @change="editText('instagram', 'short', $event)" /></label>
+        <ResultImageMap
+          channel="instagram"
+          :images="images"
+          :placements="[]"
+          :image-order="instagram.data.imageOrder"
+          :cover-image-id="instagram.data.coverImageId"
+        />
         <p class="hashtag-line">{{ instagram.data.hashtags.join(' ') }}</p>
         <RewriteActionSheet channel="instagram" @rewrite="emit('rewrite', $event)" />
         <PublishChecklist :review="review" />
