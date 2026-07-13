@@ -12,25 +12,10 @@ import PhotoOrganizer from "@/features/studio/PhotoOrganizer.vue"
 import PhotoUploader from "@/features/studio/PhotoUploader.vue"
 import ProgressStepper from "@/features/studio/ProgressStepper.vue"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
+import { rewriteActionKey, rewriteFeedbackFor, type RewritePreview } from "@/features/studio/rewrite-actions"
 import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
 import type { FaceMask } from "@/domain/studio"
-
-interface RewritePreview {
-  section: string
-  label: string
-  text: string
-}
-
-const rewriteFeedback: Record<string, { preview: string; toast: string }> = {
-  "naver:intro:감성 줄이기": { preview: "도입부", toast: "도입부의 감성을 줄였어요" },
-  "naver:body:철학 줄이기": { preview: "네이버 본문", toast: "본문의 철학적 표현을 줄였어요" },
-  "naver:body:사진 설명 늘리기": { preview: "네이버 본문", toast: "사진 설명을 보강했어요" },
-  "naver:title:최근 글과 다르게": { preview: "새 제목", toast: "새 제목을 만들었어요" },
-  "instagram:hook:첫 문장만 변경": { preview: "첫 문장", toast: "첫 문장을 변경했어요" },
-  "instagram:short:더 짧게": { preview: "짧은 캡션", toast: "캡션을 더 짧게 만들었어요" },
-  "instagram:hashtags:해시태그 변경": { preview: "해시태그", toast: "해시태그를 변경했어요" }
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -130,12 +115,12 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
 
 async function rewriteResult(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
   if (pendingRewriteKey.value) return
-  const key = `${request.channel}:${request.section}:${request.instruction}`
+  const key = rewriteActionKey(request)
   pendingRewriteKey.value = key
   error.value = null
   try {
     const rewritten = await store.rewrite(request)
-    const feedback = rewriteFeedback[key]
+    const feedback = rewriteFeedbackFor(request)
     rewritePreviews.value = {
       ...rewritePreviews.value,
       [request.channel]: {

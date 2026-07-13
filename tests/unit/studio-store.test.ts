@@ -39,6 +39,14 @@ function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   resetStudioServices()
@@ -122,6 +130,88 @@ describe("studio workflow store", () => {
 
     expect(result).toEqual({ section: "intro", text: store.draft.naver.data?.introOptions[0] })
     expect(repository.saveCalls).toBeGreaterThan(1)
+  })
+
+  it("preserves a later body edit when a delayed rewrite succeeds", async () => {
+    const rewriteStarted = deferred<void>()
+    const releaseRewrite = deferred<void>()
+    const rewrittenBody = "AI가 새로 쓴 본문입니다. 호흡과 움직임을 차분히 기록했습니다. ".repeat(18)
+    const laterUserBody = "사용자가 나중에 직접 편집한 본문입니다. 호흡과 움직임을 꼼꼼히 확인했습니다. ".repeat(18)
+    class DelayedRewriteProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        rewriteStarted.resolve()
+        await releaseRewrite.promise
+        return { section: input.section, text: rewrittenBody }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new DelayedRewriteProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const rewrite = store.rewrite({ channel: "naver", section: "body", instruction: "사진 설명 늘리기" })
+    await rewriteStarted.promise
+    const edit = store.editResult({ channel: "naver", section: "body", text: laterUserBody })
+    releaseRewrite.resolve()
+    await Promise.all([rewrite, edit])
+
+    expect(store.draft.naver.data?.body).toBe(laterUserBody.trim())
+    expect(repository.drafts.get(store.draft.id)?.naver.data?.body).toBe(laterUserBody.trim())
+  })
+
+  it("preserves later option and cross-channel edits when a delayed rewrite fails", async () => {
+    const rewriteStarted = deferred<void>()
+    const releaseRewrite = deferred<void>()
+    class DelayedFailureProvider extends LocalAIProvider {
+      override async rewriteSection(): Promise<never> {
+        rewriteStarted.resolve()
+        await releaseRewrite.promise
+        throw new Error("재작성 실패")
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new DelayedFailureProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const selectedIntro = store.draft.naver.data?.introOptions[1]
+    const laterCaption = "사용자가 재작성 대기 중 직접 고친 인스타그램 캡션입니다."
+
+    const rewrite = store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+    await rewriteStarted.promise
+    const select = store.selectOption({ channel: "naver", kind: "intro", index: 1 })
+    const edit = store.editResult({ channel: "instagram", section: "caption", text: laterCaption })
+    releaseRewrite.resolve()
+    await expect(rewrite).rejects.toThrow("재작성 실패")
+    await Promise.all([select, edit])
+
+    expect(store.draft.naver.data?.introOptions[0]).toBe(selectedIntro)
+    expect(store.draft.instagram.data?.captionLong).toBe(laterCaption)
+    const persisted = repository.drafts.get(store.draft.id)
+    expect(persisted?.naver.data?.introOptions[0]).toBe(selectedIntro)
+    expect(persisted?.instagram.data?.captionLong).toBe(laterCaption)
+  })
+
+  it("continues result mutations after a rejected rewrite", async () => {
+    class RejectedRewriteProvider extends LocalAIProvider {
+      override async rewriteSection(): Promise<never> {
+        throw new Error("재작성 실패")
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new RejectedRewriteProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const laterCaption = "실패 뒤에도 저장되는 인스타그램 캡션입니다."
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("재작성 실패")
+    await store.editResult({ channel: "instagram", section: "caption", text: laterCaption })
+
+    expect(store.draft.instagram.data?.captionLong).toBe(laterCaption)
+    expect(repository.drafts.get(store.draft.id)?.instagram.data?.captionLong).toBe(laterCaption)
   })
 
   it("restores the previous result and review when persistence fails", async () => {

@@ -6,12 +6,8 @@ import CopyActionGroup from "./CopyActionGroup.vue"
 import PublishChecklist from "./PublishChecklist.vue"
 import ResultImageMap from "./ResultImageMap.vue"
 import RewriteActionSheet from "./RewriteActionSheet.vue"
-
-interface RewritePreview {
-  section: string
-  label: string
-  text: string
-}
+import RewriteResultPreview from "./RewriteResultPreview.vue"
+import type { RewritePreview } from "./rewrite-actions"
 
 defineProps<{
   naver: ChannelResult<NaverOutput>
@@ -67,10 +63,7 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <p class="class-info">{{ naver.data.classInfo }}</p>
         <p class="hashtag-line">{{ naver.data.hashtags.join(' ') }}</p>
         <RewriteActionSheet channel="naver" :pending-key="pendingRewriteKey" @rewrite="emit('rewrite', $event)" />
-        <aside v-if="rewritePreviews.naver" class="rewrite-preview" aria-live="polite">
-          <strong>최근 변경 · {{ rewritePreviews.naver.label }}</strong>
-          <p>{{ rewritePreviews.naver.text }}</p>
-        </aside>
+        <RewriteResultPreview v-if="rewritePreviews.naver" :preview="rewritePreviews.naver" />
         <PublishChecklist :review="review" />
         <CopyActionGroup channel="naver" :fallback="copyFallback" @copy="emit('copy', { channel: 'naver', part: $event })" />
       </template>
@@ -96,10 +89,7 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         />
         <p class="hashtag-line">{{ instagram.data.hashtags.join(' ') }}</p>
         <RewriteActionSheet channel="instagram" :pending-key="pendingRewriteKey" @rewrite="emit('rewrite', $event)" />
-        <aside v-if="rewritePreviews.instagram" class="rewrite-preview" aria-live="polite">
-          <strong>최근 변경 · {{ rewritePreviews.instagram.label }}</strong>
-          <p>{{ rewritePreviews.instagram.text }}</p>
-        </aside>
+        <RewriteResultPreview v-if="rewritePreviews.instagram" :preview="rewritePreviews.instagram" />
         <PublishChecklist :review="review" />
         <CopyActionGroup channel="instagram" :fallback="copyFallback" @copy="emit('copy', { channel: 'instagram', part: $event })" />
       </template>

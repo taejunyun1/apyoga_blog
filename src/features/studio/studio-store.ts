@@ -77,6 +77,13 @@ export const useStudioStore = defineStore("studio", () => {
   const busy = ref(false)
   const faceDetectionMessage = ref<string | null>(null)
   const transientFiles = new Map<string, File>()
+  let resultMutationQueue: Promise<void> = Promise.resolve()
+
+  function enqueueResultMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const operation = resultMutationQueue.then(mutation)
+    resultMutationQueue = operation.then(() => undefined, () => undefined)
+    return operation
+  }
 
   async function refreshReview(current: StudioDraft) {
     current.review = await services.ai.review({
@@ -379,72 +386,76 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
-  async function rewrite(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
-    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
-    const current = draft.value
-    const before = {
-      naver: snapshotValue(current.naver),
-      instagram: snapshotValue(current.instagram),
-      review: current.review ? snapshotValue(current.review) : null,
-      updatedAt: current.updatedAt
-    }
-
-    try {
-      const currentText = sectionText(current, request.channel, request.section)
-      const input: RewriteInput = {
-        ...request,
-        currentText,
-        memo: current.sourceMemo,
-        avoid: current.avoid,
-        tone: request.channel === "naver" ? current.naverTone : current.instagramTone
-      }
-      const rewritten = await services.ai.rewriteSection(input)
-      validateRewriteCandidate(rewritten, currentText, request, current.avoid)
-      applyRewrite(current, request.channel, request.section, rewritten.text)
-      const visibleRewrite: RewriteOutput = {
-        section: rewritten.section,
-        text: sectionText(current, request.channel, request.section)
-      }
-      await refreshReview(current)
-
-      const previousMedicalClaims = new Set(before.review?.medicalClaims ?? [])
-      if (current.review?.medicalClaims.some((claim) => !previousMedicalClaims.has(claim))) {
-        throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
+  function rewrite(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
+    return enqueueResultMutation(async () => {
+      if (!draft.value) throw new Error("작성 중인 글이 없어요.")
+      const current = draft.value
+      const before = {
+        naver: snapshotValue(current.naver),
+        instagram: snapshotValue(current.instagram),
+        review: current.review ? snapshotValue(current.review) : null,
+        updatedAt: current.updatedAt
       }
 
-      current.updatedAt = new Date().toISOString()
-      await saveNow()
-      return visibleRewrite
-    } catch (error) {
-      current.naver = before.naver
-      current.instagram = before.instagram
-      current.review = before.review
-      current.updatedAt = before.updatedAt
-      throw error
-    }
+      try {
+        const currentText = sectionText(current, request.channel, request.section)
+        const input: RewriteInput = {
+          ...request,
+          currentText,
+          memo: current.sourceMemo,
+          avoid: current.avoid,
+          tone: request.channel === "naver" ? current.naverTone : current.instagramTone
+        }
+        const rewritten = await services.ai.rewriteSection(input)
+        validateRewriteCandidate(rewritten, currentText, request, current.avoid)
+        applyRewrite(current, request.channel, request.section, rewritten.text)
+        const visibleRewrite: RewriteOutput = {
+          section: rewritten.section,
+          text: sectionText(current, request.channel, request.section)
+        }
+        await refreshReview(current)
+
+        const previousMedicalClaims = new Set(before.review?.medicalClaims ?? [])
+        if (current.review?.medicalClaims.some((claim) => !previousMedicalClaims.has(claim))) {
+          throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
+        }
+
+        current.updatedAt = new Date().toISOString()
+        await saveNow()
+        return visibleRewrite
+      } catch (error) {
+        current.naver = before.naver
+        current.instagram = before.instagram
+        current.review = before.review
+        current.updatedAt = before.updatedAt
+        throw error
+      }
+    })
   }
 
-  async function editResult(request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }) {
-    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
-    const text = request.text.trim()
-    if (!text) throw new Error("수정할 문구를 입력해 주세요.")
-    if (request.channel === "naver") {
-      if (request.section !== "body") throw new Error("수정할 네이버 영역을 확인해 주세요.")
-      if (text.length < 500) throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
-      const result = draft.value.naver.data
-      if (!result) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
-      result.body = text
-    } else {
-      const result = draft.value.instagram.data
-      if (!result) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
-      if (request.section === "caption") result.captionLong = text
-      else if (request.section === "short") result.captionShort = text
-      else throw new Error("수정할 인스타그램 영역을 확인해 주세요.")
-    }
+  function editResult(request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }) {
+    return enqueueResultMutation(async () => {
+      if (!draft.value) throw new Error("작성 중인 글이 없어요.")
+      const text = request.text.trim()
+      if (!text) throw new Error("수정할 문구를 입력해 주세요.")
+      if (request.channel === "naver") {
+        if (request.section !== "body") throw new Error("수정할 네이버 영역을 확인해 주세요.")
+        if (text.length < 500) throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
+        const result = draft.value.naver.data
+        if (!result) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
+        result.body = text
+      } else {
+        const result = draft.value.instagram.data
+        if (!result) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
+        if (request.section === "caption") result.captionLong = text
+        else if (request.section === "short") result.captionShort = text
+        else throw new Error("수정할 인스타그램 영역을 확인해 주세요.")
+      }
 
-    await refreshReview(draft.value)
-    draft.value.updatedAt = new Date().toISOString()
-    await saveNow()
+      await refreshReview(draft.value)
+      draft.value.updatedAt = new Date().toISOString()
+      await saveNow()
+    })
   }
 
   async function copy(request: { channel: "naver" | "instagram"; part: "title" | "body" | "hashtags" | "all" }) {
@@ -454,16 +465,18 @@ export const useStudioStore = defineStore("studio", () => {
     return { ...result, fallback: result.ok ? null : text }
   }
 
-  async function selectOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
-    if (!draft.value) return
-    let options: string[] | undefined
-    if (request.channel === "naver" && request.kind === "title") options = draft.value.naver.data?.titles
-    else if (request.channel === "naver" && request.kind === "intro") options = draft.value.naver.data?.introOptions
-    else if (request.channel === "instagram" && request.kind === "hook") options = draft.value.instagram.data?.hookOptions
-    if (!options?.[request.index]) return
-    const [selected] = options.splice(request.index, 1)
-    options.unshift(selected)
-    await saveNow()
+  function selectOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
+    return enqueueResultMutation(async () => {
+      if (!draft.value) return
+      let options: string[] | undefined
+      if (request.channel === "naver" && request.kind === "title") options = draft.value.naver.data?.titles
+      else if (request.channel === "naver" && request.kind === "intro") options = draft.value.naver.data?.introOptions
+      else if (request.channel === "instagram" && request.kind === "hook") options = draft.value.instagram.data?.hookOptions
+      if (!options?.[request.index]) return
+      const [selected] = options.splice(request.index, 1)
+      options.unshift(selected)
+      await saveNow()
+    })
   }
 
   async function finalize(now = new Date().toISOString()) {
