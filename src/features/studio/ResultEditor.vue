@@ -67,7 +67,7 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <PublishChecklist :review="review" />
         <CopyActionGroup channel="naver" :fallback="copyFallback" @copy="emit('copy', { channel: 'naver', part: $event })" />
       </template>
-      <div v-else-if="naver.status === 'error'" class="channel-error"><p>{{ naver.error }}</p><button type="button" @click="emit('retry-channel', 'naver')">네이버만 다시 생성</button></div>
+      <div v-else-if="naver.status === 'error'" class="channel-error"><p>{{ naver.error }}</p><button type="button" :disabled="pendingRewriteKey !== null" @click="emit('retry-channel', 'naver')">네이버만 다시 생성</button></div>
       <p v-else class="empty-row">네이버 글을 생성하고 있어요.</p>
     </div>
 
@@ -93,7 +93,7 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <PublishChecklist :review="review" />
         <CopyActionGroup channel="instagram" :fallback="copyFallback" @copy="emit('copy', { channel: 'instagram', part: $event })" />
       </template>
-      <div v-else-if="instagram.status === 'error'" class="channel-error"><p>{{ instagram.error }}</p><button type="button" @click="emit('retry-channel', 'instagram')">인스타그램만 다시 생성</button></div>
+      <div v-else-if="instagram.status === 'error'" class="channel-error"><p>{{ instagram.error }}</p><button type="button" :disabled="pendingRewriteKey !== null" @click="emit('retry-channel', 'instagram')">인스타그램만 다시 생성</button></div>
       <p v-else class="empty-row">인스타그램 글을 생성하고 있어요.</p>
     </div>
 

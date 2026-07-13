@@ -92,7 +92,7 @@ export const useStudioStore = defineStore("studio", () => {
     })
   }
 
-  async function saveNow() {
+  async function persistNow() {
     if (!draft.value) return
     saveStatus.value = "saving"
     try {
@@ -103,6 +103,10 @@ export const useStudioStore = defineStore("studio", () => {
       saveStatus.value = "error"
       throw error
     }
+  }
+
+  function saveNow() {
+    return enqueueResultMutation(persistNow)
   }
 
   async function create(now?: string) {
@@ -331,59 +335,63 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
-  async function generateAll() {
-    const current = draft.value
-    const brief = current?.brief
-    if (!current || !brief || !current.briefConfirmed) {
-      throw new Error("AI가 이해한 내용을 확인한 뒤 생성해 주세요.")
-    }
+  function generateAll() {
+    return enqueueResultMutation(async () => {
+      const current = draft.value
+      const brief = current?.brief
+      if (!current || !brief || !current.briefConfirmed) {
+        throw new Error("AI가 이해한 내용을 확인한 뒤 생성해 주세요.")
+      }
 
-    const input = {
-      memo: current.sourceMemo,
-      mustInclude: current.mustInclude,
-      avoid: current.avoid,
-      writingMode: current.writingMode,
-      naverTone: current.naverTone,
-      instagramTone: current.instagramTone,
-      images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder })),
-      brief
-    }
-    current.step = "generating"
-    current.naver = { status: "loading", data: current.naver.data, error: null }
-    current.instagram = { status: "loading", data: current.instagram.data, error: null }
+      const input = {
+        memo: current.sourceMemo,
+        mustInclude: current.mustInclude,
+        avoid: current.avoid,
+        writingMode: current.writingMode,
+        naverTone: current.naverTone,
+        instagramTone: current.instagramTone,
+        images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder })),
+        brief
+      }
+      current.step = "generating"
+      current.naver = { status: "loading", data: current.naver.data, error: null }
+      current.instagram = { status: "loading", data: current.instagram.data, error: null }
 
-    const [naver, instagram] = await Promise.allSettled([
-      services.ai.generateNaver(input),
-      services.ai.generateInstagram(input)
-    ])
+      const [naver, instagram] = await Promise.allSettled([
+        services.ai.generateNaver(input),
+        services.ai.generateInstagram(input)
+      ])
 
-    current.naver = naver.status === "fulfilled"
-      ? { status: "success", data: naver.value, error: null }
-      : { status: "error", data: current.naver.data, error: errorMessage(naver.reason) }
-    current.instagram = instagram.status === "fulfilled"
-      ? { status: "success", data: instagram.value, error: null }
-      : { status: "error", data: current.instagram.data, error: errorMessage(instagram.reason) }
-    current.step = "results"
-    await refreshReview(current)
-    current.updatedAt = new Date().toISOString()
-    await saveNow()
+      current.naver = naver.status === "fulfilled"
+        ? { status: "success", data: naver.value, error: null }
+        : { status: "error", data: current.naver.data, error: errorMessage(naver.reason) }
+      current.instagram = instagram.status === "fulfilled"
+        ? { status: "success", data: instagram.value, error: null }
+        : { status: "error", data: current.instagram.data, error: errorMessage(instagram.reason) }
+      current.step = "results"
+      await refreshReview(current)
+      current.updatedAt = new Date().toISOString()
+      await persistNow()
+    })
   }
 
-  async function retryChannel(channel: "naver" | "instagram") {
-    if (!draft.value?.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
-    const current = draft.value
-    const input = channelInput(current)
-    if (channel === "naver") current.naver = { status: "loading", data: current.naver.data, error: null }
-    else current.instagram = { status: "loading", data: current.instagram.data, error: null }
-    try {
-      if (channel === "naver") current.naver = { status: "success", data: await services.ai.generateNaver(input), error: null }
-      else current.instagram = { status: "success", data: await services.ai.generateInstagram(input), error: null }
-    } catch (error) {
-      if (channel === "naver") current.naver = { status: "error", data: current.naver.data, error: errorMessage(error) }
-      else current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(error) }
-    }
-    await refreshReview(current)
-    await saveNow()
+  function retryChannel(channel: "naver" | "instagram") {
+    return enqueueResultMutation(async () => {
+      if (!draft.value?.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
+      const current = draft.value
+      const input = channelInput(current)
+      if (channel === "naver") current.naver = { status: "loading", data: current.naver.data, error: null }
+      else current.instagram = { status: "loading", data: current.instagram.data, error: null }
+      try {
+        if (channel === "naver") current.naver = { status: "success", data: await services.ai.generateNaver(input), error: null }
+        else current.instagram = { status: "success", data: await services.ai.generateInstagram(input), error: null }
+      } catch (error) {
+        if (channel === "naver") current.naver = { status: "error", data: current.naver.data, error: errorMessage(error) }
+        else current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(error) }
+      }
+      await refreshReview(current)
+      await persistNow()
+    })
   }
 
   function rewrite(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
@@ -421,7 +429,7 @@ export const useStudioStore = defineStore("studio", () => {
         }
 
         current.updatedAt = new Date().toISOString()
-        await saveNow()
+        await persistNow()
         return visibleRewrite
       } catch (error) {
         current.naver = before.naver
@@ -454,7 +462,7 @@ export const useStudioStore = defineStore("studio", () => {
 
       await refreshReview(draft.value)
       draft.value.updatedAt = new Date().toISOString()
-      await saveNow()
+      await persistNow()
     })
   }
 
@@ -475,18 +483,20 @@ export const useStudioStore = defineStore("studio", () => {
       if (!options?.[request.index]) return
       const [selected] = options.splice(request.index, 1)
       options.unshift(selected)
-      await saveNow()
+      await persistNow()
     })
   }
 
-  async function finalize(now = new Date().toISOString()) {
-    if (!draft.value) throw new Error("완료할 글이 없어요.")
-    draft.value.finalizedAt = now
-    draft.value.updatedAt = now
-    draft.value.title = draft.value.naver.data?.titles[0] ?? draft.value.instagram.data?.hookOptions[0] ?? "완료한 콘텐츠"
-    await services.repository.finalize(draft.value)
-    await saveNow()
-    history.value = await services.repository.listHistory()
+  function finalize(now = new Date().toISOString()) {
+    return enqueueResultMutation(async () => {
+      if (!draft.value) throw new Error("완료할 글이 없어요.")
+      draft.value.finalizedAt = now
+      draft.value.updatedAt = now
+      draft.value.title = draft.value.naver.data?.titles[0] ?? draft.value.instagram.data?.hookOptions[0] ?? "완료한 콘텐츠"
+      await services.repository.finalize(draft.value)
+      await persistNow()
+      history.value = await services.repository.listHistory()
+    })
   }
 
   async function discard() {

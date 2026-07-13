@@ -22,6 +22,7 @@ function deferred<T>() {
 
 class ControlledRewriteProvider extends LocalAIProvider {
   rewriteCalls = 0
+  instagramGenerationCalls = 0
   private rewriteGate: ReturnType<typeof deferred<void>> | null = null
 
   holdNextRewrite() {
@@ -42,6 +43,11 @@ class ControlledRewriteProvider extends LocalAIProvider {
     if (gate) await gate.promise
     return super.rewriteSection(input)
   }
+
+  override async generateInstagram(input: Parameters<LocalAIProvider["generateInstagram"]>[0]) {
+    this.instagramGenerationCalls += 1
+    return super.generateInstagram(input)
+  }
 }
 
 class ToggleFailRepository extends InMemoryRepository {
@@ -58,7 +64,7 @@ class ToggleFailRepository extends InMemoryRepository {
 
 afterEach(() => resetStudioServices())
 
-async function renderReadyResults() {
+async function renderReadyResults(options: { instagramError?: boolean } = {}) {
   const repository = new InMemoryRepository()
   const ai = new ControlledRewriteProvider()
   configureStudioServices({ repository, ai })
@@ -80,6 +86,9 @@ async function renderReadyResults() {
   draft.briefConfirmed = true
   store.draft = draft
   await store.generateAll()
+  if (options.instagramError) {
+    store.draft.instagram = { status: "error", data: store.draft.instagram.data, error: "다시 생성 필요" }
+  }
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/studio/:draftId", component: StudioView }] })
   await router.push(`/studio/${draft.id}`)
   await router.isReady()
@@ -148,6 +157,35 @@ describe("studio generation flow", () => {
     expect(store.draft?.naver.data?.body).toBe(originalBody)
     expect(store.draft?.naver.data?.introOptions[0]).toBe(originalIntro)
     expect(screen.queryByText("도입부의 감성을 줄였어요")).toBeNull()
+  })
+
+  it.each([
+    { outcome: "성공", reject: false },
+    { outcome: "실패", reject: true }
+  ])("keeps a failed-channel retry disabled until a delayed rewrite $outcome", async ({ reject }) => {
+    const { ai } = await renderReadyResults({ instagramError: true })
+    const user = userEvent.setup()
+    const gate = ai.holdNextRewriteGate()
+
+    await user.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
+    await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
+    await user.click(screen.getByRole("tab", { name: "인스타그램" }))
+
+    const retry = screen.getByRole("button", { name: "인스타그램만 다시 생성" }) as HTMLButtonElement
+    const retryWasDisabled = retry.disabled
+    const generationCallsBeforeClick = ai.instagramGenerationCalls
+    await user.click(retry)
+    const generationCallsAfterClick = ai.instagramGenerationCalls
+
+    if (reject) gate.reject(new Error("재작성 실패"))
+    else gate.resolve()
+    if (reject) await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("재작성 실패"))
+    await waitFor(() => expect((screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement).disabled).toBe(false))
+
+    expect(retryWasDisabled).toBe(true)
+    expect(generationCallsAfterClick).toBe(generationCallsBeforeClick)
+    expect((screen.getByRole("button", { name: "인스타그램만 다시 생성" }) as HTMLButtonElement).disabled).toBe(false)
+    if (reject) expect(screen.queryByText("도입부의 감성을 줄였어요")).toBeNull()
   })
 
   it("moves from memo through brief confirmation to two channel results", async () => {

@@ -214,6 +214,207 @@ describe("studio workflow store", () => {
     expect(repository.drafts.get(store.draft.id)?.instagram.data?.captionLong).toBe(laterCaption)
   })
 
+  it("preserves a regenerated Instagram result after a delayed Naver rewrite fails", async () => {
+    const rewriteStarted = deferred<void>()
+    const releaseRewrite = deferred<void>()
+    const regeneratedCaption = "실패한 네이버 재작성 뒤에도 남아야 하는 새 인스타그램 캡션입니다."
+    class DelayedFailureRetryProvider extends LocalAIProvider {
+      instagramCalls = 0
+
+      override async generateInstagram(input: Parameters<LocalAIProvider["generateInstagram"]>[0]) {
+        const output = await super.generateInstagram(input)
+        this.instagramCalls += 1
+        return this.instagramCalls === 1 ? output : { ...output, captionLong: regeneratedCaption }
+      }
+
+      override async rewriteSection(): Promise<never> {
+        rewriteStarted.resolve()
+        await releaseRewrite.promise
+        throw new Error("재작성 실패")
+      }
+    }
+    const repository = new InMemoryRepository()
+    const ai = new DelayedFailureRetryProvider()
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    store.draft.instagram = { status: "error", data: store.draft.instagram.data, error: "인스타그램 실패" }
+    await store.saveNow()
+
+    const rewrite = store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+    await rewriteStarted.promise
+    const retry = store.retryChannel("instagram")
+    const generationCallsWhileRewritePending = ai.instagramCalls
+    releaseRewrite.resolve()
+    await expect(rewrite).rejects.toThrow("재작성 실패")
+    await retry
+
+    expect(generationCallsWhileRewritePending).toBe(1)
+    expect(store.draft.instagram).toMatchObject({ status: "success", data: { captionLong: regeneratedCaption } })
+    expect(repository.drafts.get(store.draft.id)?.instagram).toMatchObject({
+      status: "success",
+      data: { captionLong: regeneratedCaption }
+    })
+  })
+
+  it("runs a queued channel retry after an earlier rewrite rejects", async () => {
+    const regeneratedCaption = "거절된 재작성 다음 순서에서 생성된 인스타그램 캡션입니다."
+    class RejectedRewriteRetryProvider extends LocalAIProvider {
+      instagramCalls = 0
+
+      override async generateInstagram(input: Parameters<LocalAIProvider["generateInstagram"]>[0]) {
+        const output = await super.generateInstagram(input)
+        this.instagramCalls += 1
+        return this.instagramCalls === 1 ? output : { ...output, captionLong: regeneratedCaption }
+      }
+
+      override async rewriteSection(): Promise<never> {
+        throw new Error("재작성 실패")
+      }
+    }
+    const repository = new InMemoryRepository()
+    const ai = new RejectedRewriteRetryProvider()
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    store.draft.instagram = { status: "error", data: store.draft.instagram.data, error: "인스타그램 실패" }
+    await store.saveNow()
+
+    const rewrite = store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+    const retry = store.retryChannel("instagram")
+    await expect(rewrite).rejects.toThrow("재작성 실패")
+    await retry
+
+    expect(store.draft.instagram).toMatchObject({ status: "success", data: { captionLong: regeneratedCaption } })
+    expect(repository.drafts.get(store.draft.id)?.instagram).toMatchObject({
+      status: "success",
+      data: { captionLong: regeneratedCaption }
+    })
+  })
+
+  it("serializes full result generation behind a pending rewrite", async () => {
+    const rewriteStarted = deferred<void>()
+    const releaseRewrite = deferred<void>()
+    class DelayedFailureGenerationProvider extends LocalAIProvider {
+      naverCalls = 0
+      instagramCalls = 0
+
+      override async generateNaver(input: Parameters<LocalAIProvider["generateNaver"]>[0]) {
+        this.naverCalls += 1
+        return super.generateNaver(input)
+      }
+
+      override async generateInstagram(input: Parameters<LocalAIProvider["generateInstagram"]>[0]) {
+        this.instagramCalls += 1
+        return super.generateInstagram(input)
+      }
+
+      override async rewriteSection(): Promise<never> {
+        rewriteStarted.resolve()
+        await releaseRewrite.promise
+        throw new Error("재작성 실패")
+      }
+    }
+    const repository = new InMemoryRepository()
+    const ai = new DelayedFailureGenerationProvider()
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const rewrite = store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+    await rewriteStarted.promise
+    const generation = store.generateAll()
+    const callsWhileRewritePending = [ai.naverCalls, ai.instagramCalls]
+    releaseRewrite.resolve()
+    await expect(rewrite).rejects.toThrow("재작성 실패")
+    await generation
+
+    expect(callsWhileRewritePending).toEqual([1, 1])
+    expect(store.draft.naver.status).toBe("success")
+    expect(store.draft.instagram.status).toBe("success")
+    expect(repository.drafts.get(store.draft.id)).toMatchObject({
+      naver: { status: "success" },
+      instagram: { status: "success" }
+    })
+  })
+
+  it("serializes finalization behind a pending result rewrite", async () => {
+    const rewriteStarted = deferred<void>()
+    const releaseRewrite = deferred<void>()
+    const rewrittenTitle = "호흡과 감각을 다시 만나는 수련"
+    class DelayedTitleProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        rewriteStarted.resolve()
+        await releaseRewrite.promise
+        return { section: input.section, text: rewrittenTitle }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new DelayedTitleProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const rewrite = store.rewrite({ channel: "naver", section: "title", instruction: "최근 글과 다르게" })
+    await rewriteStarted.promise
+    const finalize = store.finalize("2026-07-11T02:00:00.000Z")
+    const historyEntriesWhileRewritePending = repository.history.size
+    releaseRewrite.resolve()
+    await Promise.all([rewrite, finalize])
+
+    expect(historyEntriesWhileRewritePending).toBe(0)
+    expect(store.draft.title).toBe(rewrittenTitle)
+    expect(repository.history.get(store.draft.id)?.title).toBe(rewrittenTitle)
+    expect(repository.history.get(store.draft.id)?.naver.data?.titles[0]).toBe(rewrittenTitle)
+  })
+
+  it("queues public persistence behind a pending rewrite rollback", async () => {
+    const reviewStarted = deferred<void>()
+    const releaseReview = deferred<void>()
+    class DelayedUnsafeReviewProvider extends LocalAIProvider {
+      reviewCalls = 0
+
+      override async review(input: Parameters<LocalAIProvider["review"]>[0]) {
+        this.reviewCalls += 1
+        if (this.reviewCalls === 1) return super.review(input)
+        reviewStarted.resolve()
+        await releaseReview.promise
+        return {
+          medicalClaims: ["새 의료적 단정"],
+          repetitions: [],
+          privacyWarnings: [],
+          passed: false
+        }
+      }
+
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "검토가 끝나기 전에는 저장되면 안 되는 새 도입부입니다." }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new DelayedUnsafeReviewProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const originalIntro = store.draft.naver.data?.introOptions[0]
+    const saveCallsBeforeRewrite = repository.saveCalls
+
+    const rewrite = store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+    await reviewStarted.promise
+    const save = store.saveNow()
+    const saveCallsWhileReviewPending = repository.saveCalls
+    releaseReview.resolve()
+    await expect(rewrite).rejects.toThrow("의료적 단정")
+    await save
+
+    expect(saveCallsWhileReviewPending).toBe(saveCallsBeforeRewrite)
+    expect(store.draft.naver.data?.introOptions[0]).toBe(originalIntro)
+    expect(repository.drafts.get(store.draft.id)?.naver.data?.introOptions[0]).toBe(originalIntro)
+  })
+
   it("restores the previous result and review when persistence fails", async () => {
     class FailingRepository extends InMemoryRepository {
       failNextSave = false

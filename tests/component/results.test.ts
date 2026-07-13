@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/vue"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 import type { InstagramOutput } from "@/domain/studio"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
@@ -10,6 +11,7 @@ const naver = {
   data: naverOutput
 }
 
+const failedNaver = { status: "error" as const, error: "naver unavailable", data: null }
 const failedInstagram = { status: "error" as const, error: "instagram unavailable", data: null }
 const instagramOutput = {
   hookOptions: ["호흡으로 돌아온 저녁", "어깨의 감각을 살핀 시간", "차분하게 이어 간 수련"],
@@ -224,6 +226,53 @@ describe("ResultEditor", () => {
     expect((activeRequest as HTMLButtonElement).disabled).toBe(true)
     expect(activeRequest.getAttribute("aria-busy")).toBe("true")
     expect((screen.getByRole("button", { name: "도입부 감성 줄이기" }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it.each([
+    {
+      name: "Naver",
+      naverResult: failedNaver,
+      instagramResult: successfulInstagram,
+      tab: null,
+      retryLabel: "네이버만 다시 생성"
+    },
+    {
+      name: "Instagram",
+      naverResult: naver,
+      instagramResult: failedInstagram,
+      tab: "인스타그램",
+      retryLabel: "인스타그램만 다시 생성"
+    }
+  ])("disables and restores the $name retry while rewriting", async ({ naverResult, instagramResult, tab, retryLabel }) => {
+    const user = userEvent.setup()
+    const view = render(ResultEditor, {
+      props: {
+        naver: naverResult,
+        instagram: instagramResult,
+        images,
+        review,
+        copyFallback: null,
+        pendingRewriteKey: "naver:intro:감성 줄이기",
+        rewritePreviews: {}
+      }
+    })
+    if (tab) await user.click(screen.getByRole("tab", { name: tab }))
+
+    const retry = screen.getByRole("button", { name: retryLabel }) as HTMLButtonElement
+    expect(retry.disabled).toBe(true)
+    await user.click(retry)
+    expect(view.emitted()["retry-channel"]).toBeUndefined()
+
+    await view.rerender({
+      naver: naverResult,
+      instagram: instagramResult,
+      images,
+      review,
+      copyFallback: null,
+      pendingRewriteKey: null,
+      rewritePreviews: {}
+    })
+    expect((screen.getByRole("button", { name: retryLabel }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it("disables only result mutations in both channels while a rewrite is pending", async () => {
