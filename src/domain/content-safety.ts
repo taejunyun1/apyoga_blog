@@ -5,17 +5,23 @@ const DIRECT_MEDICAL_CLAIM_PATTERNS = [
 ]
 
 const MEDICAL_RECOVERY_PATTERN = /(?:통증|질환|질병|증상|부상|상처|염증|불편감)(?:이|가|은|는|을|를)?.{0,20}(?:나아집니다|낫습니다|나아질수있(?:습니다|어요|다)|나아지게됩니다|낫게됩니다)/
+const MEDICAL_CLAIM_PATTERNS = [...DIRECT_MEDICAL_CLAIM_PATTERNS, MEDICAL_RECOVERY_PATTERN]
 
 export function forbiddenExpressions(avoid: string): string[] {
   return avoid.split(/[,\n]/).map((value) => value.trim()).filter(Boolean)
 }
 
-export function hasMedicalClaim(value: string): boolean {
+export function countMedicalClaimOccurrences(value: string): number {
   const normalized = value
     .normalize("NFKC")
     .replace(/[\s.,!?·…'"“”‘’()[\]{}:;—–_-]+/g, "")
-  return DIRECT_MEDICAL_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))
-    || MEDICAL_RECOVERY_PATTERN.test(normalized)
+  return MEDICAL_CLAIM_PATTERNS.reduce((count, pattern) => (
+    count + (normalized.match(new RegExp(pattern.source, "g"))?.length ?? 0)
+  ), 0)
+}
+
+export function hasMedicalClaim(value: string): boolean {
+  return countMedicalClaimOccurrences(value) > 0
 }
 
 export function sanitizeLocalFragment(value: string, avoid: string): string {

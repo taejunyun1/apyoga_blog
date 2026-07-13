@@ -5,7 +5,7 @@ import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-
 import { applyMasksToBlob, prepareImage, validateImageSelection } from "@/adapters/image-processor"
 import { OpenAIProvider } from "@/adapters/openai-provider"
 import { MediaPipeFaceDetector, type DetectedFace } from "@/adapters/mediapipe-face-detector"
-import { forbiddenExpressions, hasMedicalClaim } from "@/domain/content-safety"
+import { countMedicalClaimOccurrences, forbiddenExpressions } from "@/domain/content-safety"
 import type { AIProvider, RewriteInput, RewriteOutput } from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
 import { createDraft, type FaceMask, type StudioDraft, type StudioImage } from "@/domain/studio"
@@ -577,7 +577,7 @@ function validateRewriteCandidate(
   if (rewritten.text.trim() === currentText.trim()) {
     throw new Error("이전과 다른 문구를 만들지 못했어요. 다시 시도해 주세요.")
   }
-  if (!hasMedicalClaim(currentText) && hasMedicalClaim(rewritten.text)) {
+  if (countMedicalClaimOccurrences(rewritten.text) > countMedicalClaimOccurrences(currentText)) {
     throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
   }
   if (request.channel === "naver" && request.section === "body" && rewritten.text.trim().length < 500) {
