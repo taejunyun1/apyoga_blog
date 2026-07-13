@@ -1,5 +1,7 @@
 export type ContentChannel = "naver" | "instagram"
 
+export type RewriteSection = "title" | "intro" | "body" | "hook" | "caption" | "short" | "hashtags"
+
 export interface GenerateContentInput {
   memo: string
   mustInclude: string
@@ -14,6 +16,21 @@ export interface GenerateContentInput {
     recommendedCoverImageId: string
     recommendedImageOrder: string[]
   }
+}
+
+export interface RewriteContentInput {
+  channel: ContentChannel
+  section: RewriteSection
+  instruction: string
+  currentText: string
+  memo: string
+  avoid: string
+  tone: GenerateContentInput["tone"]
+}
+
+export interface RewrittenContent {
+  section: RewriteSection
+  text: string
 }
 
 export interface GeneratedNaver {
