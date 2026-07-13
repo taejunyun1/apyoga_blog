@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue"
+import userEvent from "@testing-library/user-event"
 import { createPinia, setActivePinia } from "pinia"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it } from "vitest"
@@ -24,9 +25,14 @@ class ControlledRewriteProvider extends LocalAIProvider {
   private rewriteGate: ReturnType<typeof deferred<void>> | null = null
 
   holdNextRewrite() {
+    const gate = this.holdNextRewriteGate()
+    return () => gate.resolve()
+  }
+
+  holdNextRewriteGate() {
     const gate = deferred<void>()
     this.rewriteGate = gate
-    return () => gate.resolve()
+    return gate
   }
 
   override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
@@ -52,7 +58,98 @@ class ToggleFailRepository extends InMemoryRepository {
 
 afterEach(() => resetStudioServices())
 
+async function renderReadyResults() {
+  const repository = new InMemoryRepository()
+  const ai = new ControlledRewriteProvider()
+  configureStudioServices({ repository, ai })
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useStudioStore()
+  const draft = createDraft()
+  draft.sourceMemo = "어깨와 흉곽을 천천히 열어간 차분한 저녁 수련"
+  draft.images = studioImages(1).map((image) => ({ ...image, maskConfirmedAt: "2026-07-11T00:05:00.000Z" }))
+  draft.brief = await ai.analyzeImages({
+    memo: draft.sourceMemo,
+    mustInclude: "호흡",
+    avoid: "치료",
+    writingMode: draft.writingMode,
+    naverTone: draft.naverTone,
+    instagramTone: draft.instagramTone,
+    images: draft.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder }))
+  })
+  draft.briefConfirmed = true
+  store.draft = draft
+  await store.generateAll()
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/studio/:draftId", component: StudioView }] })
+  await router.push(`/studio/${draft.id}`)
+  await router.isReady()
+  render(StudioView, { global: { plugins: [pinia, router] } })
+  return { ai, store }
+}
+
 describe("studio generation flow", () => {
+  it("blocks unsubmitted result input until a delayed rewrite succeeds", async () => {
+    const { ai, store } = await renderReadyResults()
+    const user = userEvent.setup()
+    const body = screen.getByLabelText("본문 편집") as HTMLTextAreaElement
+    const originalBody = body.value
+    const gate = ai.holdNextRewriteGate()
+
+    await user.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
+    await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
+
+    const radios = screen.getAllByRole("radio") as HTMLInputElement[]
+    const finalize = screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement
+    expect(body.disabled).toBe(true)
+    expect(radios.every((radio) => radio.disabled)).toBe(true)
+    expect(finalize.disabled).toBe(true)
+
+    await user.type(body, "저장되면 안 되는 입력")
+    expect(body.value).toBe(originalBody)
+
+    gate.resolve()
+    await waitFor(() => expect(screen.getByText("도입부의 감성을 줄였어요")).toBeTruthy())
+    await waitFor(() => expect(body.disabled).toBe(false))
+
+    expect((screen.getAllByRole("radio") as HTMLInputElement[]).every((radio) => !radio.disabled)).toBe(true)
+    expect(finalize.disabled).toBe(false)
+    expect(body.value).toBe(originalBody)
+    expect(store.draft?.naver.data?.body).toBe(originalBody)
+    expect(screen.queryByText("수정 내용을 저장했어요")).toBeNull()
+  })
+
+  it("blocks unsubmitted result input until a delayed rewrite fails", async () => {
+    const { ai, store } = await renderReadyResults()
+    const user = userEvent.setup()
+    const body = screen.getByLabelText("본문 편집") as HTMLTextAreaElement
+    const originalBody = body.value
+    const originalIntro = store.draft?.naver.data?.introOptions[0]
+    const gate = ai.holdNextRewriteGate()
+
+    await user.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
+    await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
+
+    const radios = screen.getAllByRole("radio") as HTMLInputElement[]
+    const finalize = screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement
+    expect(body.disabled).toBe(true)
+    expect(radios.every((radio) => radio.disabled)).toBe(true)
+    expect(finalize.disabled).toBe(true)
+
+    await user.type(body, "사라지면 안 되는 미제출 입력")
+    expect(body.value).toBe(originalBody)
+
+    gate.reject(new Error("재작성 실패"))
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("재작성 실패"))
+    await waitFor(() => expect(body.disabled).toBe(false))
+
+    expect((screen.getAllByRole("radio") as HTMLInputElement[]).every((radio) => !radio.disabled)).toBe(true)
+    expect(finalize.disabled).toBe(false)
+    expect(body.value).toBe(originalBody)
+    expect(store.draft?.naver.data?.body).toBe(originalBody)
+    expect(store.draft?.naver.data?.introOptions[0]).toBe(originalIntro)
+    expect(screen.queryByText("도입부의 감성을 줄였어요")).toBeNull()
+  })
+
   it("moves from memo through brief confirmation to two channel results", async () => {
     const repository = new ToggleFailRepository()
     const ai = new ControlledRewriteProvider()

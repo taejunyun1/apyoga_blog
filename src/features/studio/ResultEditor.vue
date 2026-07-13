@@ -50,9 +50,9 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <p v-if="naver.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
           AI 연결이 불안정해 로컬 초안을 사용했어요.
         </p>
-        <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input type="radio" name="naver-title" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
-        <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input type="radio" name="naver-intro" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
-        <label class="field-label">본문 편집<textarea :value="naver.data.body" rows="12" @change="editText('naver', 'body', $event)" /></label>
+        <fieldset class="option-group"><legend>제목 선택</legend><label v-for="(title, index) in naver.data.titles" :key="title"><input type="radio" name="naver-title" :value="index" :checked="index === 0" :disabled="pendingRewriteKey !== null" @change="emit('select-option', { channel: 'naver', kind: 'title', index })" />{{ title }}</label></fieldset>
+        <fieldset class="option-group"><legend>도입부 선택</legend><label v-for="(intro, index) in naver.data.introOptions" :key="intro"><input type="radio" name="naver-intro" :value="index" :checked="index === 0" :disabled="pendingRewriteKey !== null" @change="emit('select-option', { channel: 'naver', kind: 'intro', index })" />{{ intro }}</label></fieldset>
+        <label class="field-label">본문 편집<textarea :value="naver.data.body" rows="12" :disabled="pendingRewriteKey !== null" @change="editText('naver', 'body', $event)" /></label>
         <ResultImageMap
           channel="naver"
           :images="images"
@@ -77,9 +77,9 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
         <p v-if="instagram.data.generationSource === 'local-fallback'" class="generation-source-notice" role="status">
           AI 연결이 불안정해 로컬 초안을 사용했어요.
         </p>
-        <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input type="radio" name="instagram-hook" :value="index" :checked="index === 0" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
-        <label class="field-label">기본형 캡션<textarea :value="instagram.data.captionLong" rows="9" @change="editText('instagram', 'caption', $event)" /></label>
-        <label class="field-label">짧은 캡션<textarea :value="instagram.data.captionShort" rows="3" @change="editText('instagram', 'short', $event)" /></label>
+        <fieldset class="option-group"><legend>첫 문장 선택</legend><label v-for="(hook, index) in instagram.data.hookOptions" :key="hook"><input type="radio" name="instagram-hook" :value="index" :checked="index === 0" :disabled="pendingRewriteKey !== null" @change="emit('select-option', { channel: 'instagram', kind: 'hook', index })" />{{ hook }}</label></fieldset>
+        <label class="field-label">기본형 캡션<textarea :value="instagram.data.captionLong" rows="9" :disabled="pendingRewriteKey !== null" @change="editText('instagram', 'caption', $event)" /></label>
+        <label class="field-label">짧은 캡션<textarea :value="instagram.data.captionShort" rows="3" :disabled="pendingRewriteKey !== null" @change="editText('instagram', 'short', $event)" /></label>
         <ResultImageMap
           channel="instagram"
           :images="images"
@@ -97,6 +97,6 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
       <p v-else class="empty-row">인스타그램 글을 생성하고 있어요.</p>
     </div>
 
-    <button class="secondary-action" type="button" @click="emit('finalize')">작성 이력에 저장</button>
+    <button class="secondary-action" type="button" :disabled="pendingRewriteKey !== null" @click="emit('finalize')">작성 이력에 저장</button>
   </section>
 </template>
