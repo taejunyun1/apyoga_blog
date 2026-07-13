@@ -1,5 +1,6 @@
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
-import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput } from "@/domain/ports"
+import { isSafePublishableCopy } from "@/domain/content-safety"
+import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
 import type { Channel, InstagramOutput, NaverOutput } from "@/domain/studio"
 
 type RemoteNaver = Omit<NaverOutput, "generationSource" | "qualityChecks">
@@ -106,8 +107,28 @@ export class OpenAIProvider implements AIProvider {
     return this.local.analyzeImages(input)
   }
 
-  rewriteSection(input: RewriteInput) {
-    return this.local.rewriteSection(input)
+  async rewriteSection(input: RewriteInput): Promise<RewriteOutput> {
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toRewriteInput(input)),
+      })
+    } catch {
+      return this.local.rewriteSection(input)
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) return this.local.rewriteSection(input)
+
+    const remote = await readRemoteRewrite(response, input)
+    return remote ?? this.local.rewriteSection(input)
   }
 
   review(input: { text: string; maskedFacesConfirmed: boolean }) {
@@ -187,6 +208,47 @@ async function readRemoteData(response: Response, channel: Channel): Promise<Rem
   }
   if (channel === "naver") return isRemoteNaver(payload.data) ? payload.data : null
   return isRemoteInstagram(payload.data) ? payload.data : null
+}
+
+async function readRemoteRewrite(response: Response, input: RewriteInput): Promise<RewriteOutput | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+
+  if (!hasExactKeys(payload, ["source", "data"])
+    || payload.source !== "openai"
+    || !hasExactKeys(payload.data, ["section", "text"])
+    || payload.data.section !== input.section
+    || typeof payload.data.text !== "string") {
+    return null
+  }
+
+  const text = payload.data.text.trim()
+  if (!text
+    || text === input.currentText.trim()
+    || (input.channel === "naver" && input.section === "body" && text.length < 500)
+    || (input.section === "hashtags"
+      && text.split(/\s+/).some((token) => !token.startsWith("#") || token.length < 2))
+    || !isSafePublishableCopy([text], input.avoid)) {
+    return null
+  }
+
+  return { section: input.section, text }
+}
+
+function toRewriteInput(input: RewriteInput): RewriteInput {
+  return {
+    channel: input.channel,
+    section: input.section,
+    instruction: input.instruction,
+    currentText: input.currentText,
+    memo: input.memo,
+    avoid: input.avoid,
+    tone: input.tone,
+  }
 }
 
 function toContentInput(channel: Channel, input: ChannelInput) {

@@ -20,6 +20,16 @@ const brief: ContentBrief = {
 
 const channelInput: ChannelInput = { ...analyzeInput, brief }
 
+const rewriteInput = {
+  channel: "naver" as const,
+  section: "intro",
+  instruction: "감성 줄이기",
+  currentText: "조용한 감정이 오래 머무는 저녁이었습니다.",
+  memo: "어깨와 흉곽을 살핀 수련",
+  avoid: "치료, 완치",
+  tone: "plain" as const,
+}
+
 function validNaver() {
   return {
     titles: ["천천히 여는 저녁", "몸의 감각을 듣는 시간", "차분하게 이어 간 수련"],
@@ -43,6 +53,143 @@ function validInstagram() {
 }
 
 describe("OpenAIProvider", () => {
+  it("requests a remote rewrite without photo data", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      source: "openai",
+      data: { section: "intro", text: "호흡을 살피며 수련을 시작했습니다." },
+    }))
+    const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
+    const inputWithPrivateImageData = {
+      ...rewriteInput,
+      photo: "blob:private-photo",
+      thumbnailUrl: "blob:private-thumbnail",
+      editedBlobId: "private-edit",
+    }
+
+    await expect(provider.rewriteSection(inputWithPrivateImageData)).resolves.toEqual({
+      section: "intro",
+      text: "호흡을 살피며 수련을 시작했습니다.",
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(fetcher.mock.calls[0][0]).toBe("/api/content/rewrite")
+    expect(fetcher.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+    })
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(rewriteInput)
+  })
+
+  it.each([
+    [
+      "a Naver body",
+      { ...rewriteInput, section: "body", currentText: "기존 네이버 본문 ".repeat(80) },
+      "호흡과 몸의 감각을 차분히 살피며 수련을 이어 갔습니다. ".repeat(30),
+    ],
+    [
+      "hashtags",
+      { ...rewriteInput, channel: "instagram", section: "hashtags", currentText: "#에이피요가 #요가기록" },
+      "#요가 #호흡 #마음챙김",
+    ],
+  ] as const)("accepts a valid remote rewrite for %s", async (_label, input, text) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteSection")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+        source: "openai",
+        data: { section: input.section, text },
+      })),
+      local,
+    })
+
+    await expect(provider.rewriteSection(input)).resolves.toEqual({ section: input.section, text: text.trim() })
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["a 400 response", () => new Response(null, { status: 400 })],
+    ["a 502 response", () => new Response(null, { status: 502 })],
+    ["malformed JSON", () => new Response("{", { status: 200, headers: { "Content-Type": "application/json" } })],
+    ["a non-object envelope", () => Response.json(null)],
+    ["an extra envelope field", () => Response.json({ source: "openai", data: { section: "intro", text: "새 문구" }, traceId: "private" })],
+    ["a non-OpenAI source", () => Response.json({ source: "local-fallback", data: { section: "intro", text: "새 문구" } })],
+    ["an extra data field", () => Response.json({ source: "openai", data: { section: "intro", text: "새 문구", internal: true } })],
+    ["a mismatched section", () => Response.json({ source: "openai", data: { section: "title", text: "새 제목" } })],
+    ["empty text", () => Response.json({ source: "openai", data: { section: "intro", text: "   " } })],
+    ["unchanged text", () => Response.json({ source: "openai", data: { section: "intro", text: rewriteInput.currentText } })],
+    ["a forbidden expression", () => Response.json({ source: "openai", data: { section: "intro", text: "치료를 위한 글" } })],
+    ["a direct medical claim", () => Response.json({ source: "openai", data: { section: "intro", text: "통증이 나아집니다." } })],
+  ])("uses the local rewrite once for %s", async (_label, response) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteSection")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response()),
+      local,
+    })
+
+    const result = await provider.rewriteSection(rewriteInput)
+
+    expect(result.text).not.toBe(rewriteInput.currentText)
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it("uses the local rewrite once for a network error", async () => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteSection")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockRejectedValue(new TypeError("offline")),
+      local,
+    })
+
+    const result = await provider.rewriteSection(rewriteInput)
+
+    expect(result.text).not.toBe(rewriteInput.currentText)
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    [
+      "a short Naver body",
+      { ...rewriteInput, section: "body", currentText: "기존 네이버 본문 ".repeat(80) },
+      "짧은 본문",
+    ],
+    [
+      "an invalid hashtag token",
+      { ...rewriteInput, channel: "instagram", section: "hashtags", currentText: "#에이피요가 #요가기록" },
+      "#요가 잘못된태그",
+    ],
+  ] as const)("uses the local rewrite once for %s", async (_label, input, text) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteSection")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+        source: "openai",
+        data: { section: input.section, text },
+      })),
+      local,
+    })
+
+    const result = await provider.rewriteSection(input)
+
+    expect(result.text).not.toBe(input.currentText)
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+
+  it.each([401, 403])("requires authentication for rewrite status %s", async (status) => {
+    const onAuthRequired = vi.fn()
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteSection")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status })),
+      local,
+      onAuthRequired,
+    })
+
+    await expect(provider.rewriteSection(rewriteInput)).rejects.toThrow("로그인이 필요해요.")
+    expect(onAuthRequired).toHaveBeenCalledOnce()
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["naver", validNaver()],
     ["instagram", validInstagram()],
