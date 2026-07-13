@@ -78,11 +78,14 @@ describe("Pages authentication middleware", () => {
     expect(next).not.toHaveBeenCalled()
   })
 
-  it("rejects the content generation API without a valid session", async () => {
+  it.each([
+    "/api/content/generate",
+    "/api/content/rewrite",
+  ])("rejects the protected content API %s without a valid session", async (pathname) => {
     const next = vi.fn(async () => staticResponse())
 
     const response = await protectRequest(
-      new Request("https://studio.example/api/content/generate", { method: "POST" }),
+      new Request(`https://studio.example${pathname}`, { method: "POST" }),
       env,
       next,
     )

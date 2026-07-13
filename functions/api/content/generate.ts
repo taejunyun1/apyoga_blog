@@ -2,8 +2,14 @@ import type { ContentChannel, GenerateContentInput } from "../../lib/content-typ
 import type { ContentEnv, PagesHandler } from "../../lib/env"
 import { isSameOriginJson, json } from "../../lib/http"
 import { OpenAIContentError, requestOpenAIContent } from "../../lib/openai-content"
+import {
+  hasExactKeys,
+  isBoundedString,
+  MAX_BODY_BYTES,
+  readJsonBody,
+  RequestBodyTooLargeError,
+} from "../../lib/request-body"
 
-const MAX_BODY_BYTES = 32_768
 const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
   "auto",
   "record",
@@ -14,8 +20,6 @@ const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
   "daily",
 ])
 const TONES = new Set<GenerateContentInput["tone"]>(["plain", "emotional", "deep"])
-
-class RequestBodyTooLargeError extends Error {}
 
 interface ContentRequest {
   channel: ContentChannel
@@ -79,47 +83,6 @@ export async function hashedSafetyIdentifier(account: string): Promise<string> {
   return Array.from(new Uint8Array(digest).slice(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
-async function readJsonBody(request: Request): Promise<unknown> {
-  const bytes = await readBoundedBody(request.body)
-  const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-  return JSON.parse(raw)
-}
-
-async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
-  if (!body) throw new Error("missing request body")
-
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      totalBytes += value.byteLength
-      if (totalBytes > MAX_BODY_BYTES) {
-        try {
-          await reader.cancel()
-        } catch {
-          // The body is already rejected; cancellation failure must not change the response.
-        }
-        throw new RequestBodyTooLargeError()
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const bytes = new Uint8Array(totalBytes)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
 function validateContentRequest(value: unknown): ContentRequest {
   if (!hasExactKeys(value, ["channel", "input"])
     || (value.channel !== "naver" && value.channel !== "instagram")
@@ -166,23 +129,10 @@ function isImageDescription(value: unknown): boolean {
     && typeof value.description === "string"
 }
 
-function isBoundedString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength
-}
-
 function isBoundedStringArray(value: unknown, maxLength: number): value is string[] {
   return Array.isArray(value)
     && value.length <= maxLength
     && value.every((entry) => typeof entry === "string")
-}
-
-function hasExactKeys<const Keys extends readonly string[]>(
-  value: unknown,
-  keys: Keys,
-): value is Record<Keys[number], unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-  const actual = Object.keys(value)
-  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
 }
 
 export const onRequestPost: PagesHandler<ContentEnv> = ({ request, env }) => (
