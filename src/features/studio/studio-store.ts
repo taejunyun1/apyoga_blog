@@ -1,14 +1,14 @@
 import { defineStore } from "pinia"
-import { ref } from "vue"
+import { ref, toRaw } from "vue"
 import { BrowserClipboard } from "@/adapters/browser-clipboard"
 import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-repository"
 import { applyMasksToBlob, prepareImage, validateImageSelection } from "@/adapters/image-processor"
 import { OpenAIProvider } from "@/adapters/openai-provider"
 import { MediaPipeFaceDetector, type DetectedFace } from "@/adapters/mediapipe-face-detector"
-import type { AIProvider } from "@/domain/ports"
+import { forbiddenExpressions } from "@/domain/content-safety"
+import type { AIProvider, RewriteInput, RewriteOutput } from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
 import { createDraft, type FaceMask, type StudioDraft, type StudioImage } from "@/domain/studio"
-import type { RewriteInput } from "@/domain/ports"
 
 export interface StudioRepository {
   saveDraft(draft: StudioDraft, images?: EditedImageRecord[]): Promise<void>
@@ -381,42 +381,43 @@ export const useStudioStore = defineStore("studio", () => {
 
   async function rewrite(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
     if (!draft.value) throw new Error("작성 중인 글이 없어요.")
-    const currentText = sectionText(draft.value, request.channel, request.section)
-    const input: RewriteInput = {
-      ...request,
-      currentText,
-      memo: draft.value.sourceMemo,
-      avoid: draft.value.avoid,
-      tone: request.channel === "naver" ? draft.value.naverTone : draft.value.instagramTone
-    }
-    const rewritten = await services.ai.rewriteSection(input)
-
-    if (rewritten.text.trim() === currentText.trim()) {
-      throw new Error("이전과 다른 문구를 만들지 못했어요. 다시 시도해 주세요.")
+    const current = draft.value
+    const before = {
+      naver: snapshotValue(current.naver),
+      instagram: snapshotValue(current.instagram),
+      review: current.review ? snapshotValue(current.review) : null,
+      updatedAt: current.updatedAt
     }
 
-    if (request.channel === "naver" && request.section === "body" && rewritten.text.trim().length < 500) {
-      throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
-    }
+    try {
+      const currentText = sectionText(current, request.channel, request.section)
+      const input: RewriteInput = {
+        ...request,
+        currentText,
+        memo: current.sourceMemo,
+        avoid: current.avoid,
+        tone: request.channel === "naver" ? current.naverTone : current.instagramTone
+      }
+      const rewritten = await services.ai.rewriteSection(input)
+      validateRewriteCandidate(rewritten, currentText, request, current.avoid)
+      applyRewrite(current, request.channel, request.section, rewritten.text)
+      await refreshReview(current)
 
-    if (request.channel === "naver") {
-      const result = draft.value.naver.data
-      if (!result) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
-      if (request.section === "title") result.titles[0] = rewritten.text
-      else if (request.section === "intro") result.introOptions[0] = rewritten.text
-      else result.body = rewritten.text
-    } else {
-      const result = draft.value.instagram.data
-      if (!result) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
-      if (request.section === "hook") result.hookOptions[0] = rewritten.text
-      else if (request.section === "short") result.captionShort = rewritten.text
-      else if (request.section === "hashtags") result.hashtags = rewritten.text.split(/\s+/).filter((value) => value.startsWith("#"))
-      else result.captionLong = rewritten.text
-    }
+      const previousMedicalClaims = new Set(before.review?.medicalClaims ?? [])
+      if (current.review?.medicalClaims.some((claim) => !previousMedicalClaims.has(claim))) {
+        throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
+      }
 
-    await refreshReview(draft.value)
-    draft.value.updatedAt = new Date().toISOString()
-    await saveNow()
+      current.updatedAt = new Date().toISOString()
+      await saveNow()
+      return rewritten
+    } catch (error) {
+      current.naver = before.naver
+      current.instagram = before.instagram
+      current.review = before.review
+      current.updatedAt = before.updatedAt
+      throw error
+    }
   }
 
   async function editResult(request: { channel: "naver" | "instagram"; section: "body" | "caption" | "short"; text: string }) {
@@ -489,6 +490,21 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "생성 중 알 수 없는 오류가 발생했어요."
 }
 
+function snapshotValue<T>(value: T): T {
+  return structuredClone(deepToRaw(value))
+}
+
+function deepToRaw<T>(value: T): T {
+  const raw = toRaw(value)
+  if (Array.isArray(raw)) return raw.map((entry) => deepToRaw(entry)) as T
+  if (raw !== null && typeof raw === "object") {
+    return Object.fromEntries(
+      Object.entries(raw).map(([key, entry]) => [key, deepToRaw(entry)])
+    ) as T
+  }
+  return raw
+}
+
 function channelInput(current: StudioDraft) {
   if (!current.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
   return {
@@ -530,12 +546,68 @@ function sectionText(draft: StudioDraft, channel: "naver" | "instagram", section
     if (!naver) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
     if (section === "title") return naver.titles[0] ?? ""
     if (section === "intro") return naver.introOptions[0] ?? ""
-    return naver.body
+    if (section === "body") return naver.body
+    throw new Error("수정할 네이버 영역을 확인해 주세요.")
   }
   const instagram = draft.instagram.data
   if (!instagram) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
   if (section === "hook") return instagram.hookOptions[0] ?? ""
+  if (section === "caption") return instagram.captionLong
   if (section === "short") return instagram.captionShort
   if (section === "hashtags") return instagram.hashtags.join(" ")
-  return instagram.captionLong
+  throw new Error("수정할 인스타그램 영역을 확인해 주세요.")
+}
+
+function validateRewriteCandidate(
+  rewritten: RewriteOutput,
+  currentText: string,
+  request: { channel: "naver" | "instagram"; section: string },
+  avoid: string
+): void {
+  if (rewritten.section !== request.section) {
+    throw new Error("AI가 요청과 다른 영역을 재작성해 기존 문구를 유지합니다.")
+  }
+  if (typeof rewritten.text !== "string" || !rewritten.text.trim()) {
+    throw new Error("재작성할 문구를 만들지 못했어요. 다시 시도해 주세요.")
+  }
+  if (rewritten.text.trim() === currentText.trim()) {
+    throw new Error("이전과 다른 문구를 만들지 못했어요. 다시 시도해 주세요.")
+  }
+  if (request.channel === "naver" && request.section === "body" && rewritten.text.trim().length < 500) {
+    throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 본문을 유지합니다.")
+  }
+  if (request.section === "hashtags") {
+    const hashtags = rewritten.text.trim().split(/\s+/)
+    if (hashtags.some((value) => !value.startsWith("#") || value.length < 2)) {
+      throw new Error("모든 해시태그는 #으로 시작해야 해요. 기존 해시태그를 유지합니다.")
+    }
+  }
+  if (forbiddenExpressions(avoid).some((expression) => rewritten.text.includes(expression))) {
+    throw new Error("재작성 문구에 금지 표현이 포함되어 기존 문구를 유지합니다.")
+  }
+}
+
+function applyRewrite(
+  draft: StudioDraft,
+  channel: "naver" | "instagram",
+  section: string,
+  text: string
+): void {
+  if (channel === "naver") {
+    const result = draft.naver.data
+    if (!result) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
+    if (section === "title") result.titles[0] = text
+    else if (section === "intro") result.introOptions[0] = text
+    else if (section === "body") result.body = text
+    else throw new Error("수정할 네이버 영역을 확인해 주세요.")
+    return
+  }
+
+  const result = draft.instagram.data
+  if (!result) throw new Error("먼저 인스타그램 콘텐츠를 생성해 주세요.")
+  if (section === "hook") result.hookOptions[0] = text
+  else if (section === "caption") result.captionLong = text
+  else if (section === "short") result.captionShort = text
+  else if (section === "hashtags") result.hashtags = text.trim().split(/\s+/)
+  else throw new Error("수정할 인스타그램 영역을 확인해 주세요.")
 }

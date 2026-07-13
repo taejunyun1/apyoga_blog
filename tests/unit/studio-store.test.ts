@@ -35,6 +35,10 @@ function readyDraft() {
   }
 }
 
+function snapshot<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   resetStudioServices()
@@ -105,6 +109,174 @@ describe("studio workflow store", () => {
     expect(analyzeSpy).not.toHaveBeenCalled()
     expect(store.draft?.naver.data?.body).toBe(previousBody)
     expect(store.draft?.naver.data?.introOptions[0]).toContain("호흡")
+  })
+
+  it("returns the visible rewritten section after review and persistence", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+
+    const result = await store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+
+    expect(result).toEqual({ section: "intro", text: store.draft.naver.data?.introOptions[0] })
+    expect(repository.saveCalls).toBeGreaterThan(1)
+  })
+
+  it("restores the previous result and review when persistence fails", async () => {
+    class FailingRepository extends InMemoryRepository {
+      failNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.failNextSave) {
+          this.failNextSave = false
+          throw new Error("임시 저장 실패")
+        }
+        return super.saveDraft(...args)
+      }
+    }
+    const repository = new FailingRepository()
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt })
+    repository.failNextSave = true
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("임시 저장 실패")
+    expect({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt }).toEqual(before)
+  })
+
+  it("keeps the previous result when the rewritten candidate contains an avoided term", async () => {
+    class UnsafeProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "치료를 보장하는 새 문구" }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new UnsafeProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    store.draft.avoid = "치료"
+    await store.generateAll()
+    const before = snapshot(store.draft.naver)
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("금지 표현")
+    expect(store.draft.naver).toEqual(before)
+  })
+
+  it("rejects a rewritten candidate for a different section without changing either channel", async () => {
+    class MismatchedProvider extends LocalAIProvider {
+      override async rewriteSection() {
+        return { section: "title", text: "다른 영역에 온 새 문구" }
+      }
+    }
+    configureStudioServices({ repository: new InMemoryRepository(), ai: new MismatchedProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot({ naver: store.draft.naver, instagram: store.draft.instagram })
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("영역")
+    expect({ naver: store.draft.naver, instagram: store.draft.instagram }).toEqual(before)
+  })
+
+  it("rejects malformed rewritten hashtags without dropping invalid tokens", async () => {
+    class MalformedHashtagProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "#요가 잘못된태그" }
+      }
+    }
+    configureStudioServices({ repository: new InMemoryRepository(), ai: new MalformedHashtagProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot(store.draft.instagram)
+
+    await expect(store.rewrite({ channel: "instagram", section: "hashtags", instruction: "해시태그 변경" }))
+      .rejects.toThrow("해시태그")
+    expect(store.draft.instagram).toEqual(before)
+  })
+
+  it("rolls back a rewritten candidate that introduces a new medical claim", async () => {
+    class MedicalClaimProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "이 자세로 통증이 완치됩니다." }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new MedicalClaimProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt })
+    const saveCalls = repository.saveCalls
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("의료")
+    expect({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt }).toEqual(before)
+    expect(repository.saveCalls).toBe(saveCalls)
+  })
+
+  it("restores both channels, review, and timestamp when safety review fails", async () => {
+    class ReviewFailureProvider extends LocalAIProvider {
+      failNextReview = false
+
+      override async review(input: Parameters<LocalAIProvider["review"]>[0]) {
+        if (this.failNextReview) {
+          this.failNextReview = false
+          throw new Error("안전 검토 실패")
+        }
+        return super.review(input)
+      }
+    }
+    const repository = new InMemoryRepository()
+    const ai = new ReviewFailureProvider()
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot({
+      naver: store.draft.naver,
+      instagram: store.draft.instagram,
+      review: store.draft.review,
+      updatedAt: store.draft.updatedAt
+    })
+    ai.failNextReview = true
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("안전 검토 실패")
+    expect({
+      naver: store.draft.naver,
+      instagram: store.draft.instagram,
+      review: store.draft.review,
+      updatedAt: store.draft.updatedAt
+    }).toEqual(before)
+  })
+
+  it("allows a safe rewrite when an unrelated pre-existing review warning remains", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    await store.editResult({
+      channel: "instagram",
+      section: "caption",
+      text: "이 수련으로 통증이 완치됩니다."
+    })
+    const claims = snapshot(store.draft.review?.medicalClaims)
+    const saveCalls = repository.saveCalls
+
+    await store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+
+    expect(store.draft.review?.passed).toBe(false)
+    expect(store.draft.review?.medicalClaims).toEqual(claims)
+    expect(repository.saveCalls).toBe(saveCalls + 1)
   })
 
   it("rejects a rewrite that returns the same visible text", async () => {
