@@ -16,6 +16,22 @@ import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
 import type { FaceMask } from "@/domain/studio"
 
+interface RewritePreview {
+  section: string
+  label: string
+  text: string
+}
+
+const rewriteFeedback: Record<string, { preview: string; toast: string }> = {
+  "naver:intro:감성 줄이기": { preview: "도입부", toast: "도입부의 감성을 줄였어요" },
+  "naver:body:철학 줄이기": { preview: "네이버 본문", toast: "본문의 철학적 표현을 줄였어요" },
+  "naver:body:사진 설명 늘리기": { preview: "네이버 본문", toast: "사진 설명을 보강했어요" },
+  "naver:title:최근 글과 다르게": { preview: "새 제목", toast: "새 제목을 만들었어요" },
+  "instagram:hook:첫 문장만 변경": { preview: "첫 문장", toast: "첫 문장을 변경했어요" },
+  "instagram:short:더 짧게": { preview: "짧은 캡션", toast: "캡션을 더 짧게 만들었어요" },
+  "instagram:hashtags:해시태그 변경": { preview: "해시태그", toast: "해시태그를 변경했어요" }
+}
+
 const route = useRoute()
 const router = useRouter()
 const store = useStudioStore()
@@ -24,6 +40,8 @@ const activeMaskIndex = ref(0)
 const copyFallback = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 const toastId = ref(0)
+const pendingRewriteKey = ref<string | null>(null)
+const rewritePreviews = ref<Partial<Record<"naver" | "instagram", RewritePreview>>>({})
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 const stopAutosave = useAutosave(store)
 
@@ -111,7 +129,27 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
 }
 
 async function rewriteResult(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
-  await run(() => store.rewrite(request), "문구를 변경했어요")
+  if (pendingRewriteKey.value) return
+  const key = `${request.channel}:${request.section}:${request.instruction}`
+  pendingRewriteKey.value = key
+  error.value = null
+  try {
+    const rewritten = await store.rewrite(request)
+    const feedback = rewriteFeedback[key]
+    rewritePreviews.value = {
+      ...rewritePreviews.value,
+      [request.channel]: {
+        section: rewritten.section,
+        label: feedback.preview,
+        text: rewritten.text
+      }
+    }
+    showToast(feedback.toast)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "문구를 변경하지 못했어요."
+  } finally {
+    pendingRewriteKey.value = null
+  }
 }
 
 async function selectResultOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
@@ -204,6 +242,8 @@ async function finalizeResult() {
         :review="store.draft.review"
         :copy-fallback="copyFallback"
         :images="store.draft.images"
+        :pending-rewrite-key="pendingRewriteKey"
+        :rewrite-previews="rewritePreviews"
         @retry-channel="retryChannel"
         @rewrite="rewriteResult"
         @select-option="selectResultOption"

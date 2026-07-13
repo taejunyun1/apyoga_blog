@@ -9,6 +9,35 @@ import { configureStudioServices, resetStudioServices, useStudioStore } from "@/
 import { studioImages } from "../fixtures"
 import { InMemoryRepository } from "../helpers/in-memory-repository"
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+class ControlledRewriteProvider extends LocalAIProvider {
+  rewriteCalls = 0
+  private rewriteGate: ReturnType<typeof deferred<void>> | null = null
+
+  holdNextRewrite() {
+    const gate = deferred<void>()
+    this.rewriteGate = gate
+    return () => gate.resolve()
+  }
+
+  override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+    this.rewriteCalls += 1
+    const gate = this.rewriteGate
+    this.rewriteGate = null
+    if (gate) await gate.promise
+    return super.rewriteSection(input)
+  }
+}
+
 class ToggleFailRepository extends InMemoryRepository {
   failNextSave = false
 
@@ -26,7 +55,8 @@ afterEach(() => resetStudioServices())
 describe("studio generation flow", () => {
   it("moves from memo through brief confirmation to two channel results", async () => {
     const repository = new ToggleFailRepository()
-    configureStudioServices({ repository, ai: new LocalAIProvider() })
+    const ai = new ControlledRewriteProvider()
+    configureStudioServices({ repository, ai })
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useStudioStore()
@@ -57,11 +87,30 @@ describe("studio generation flow", () => {
     await waitFor(() => expect(screen.getByText("제목 옵션을 변경했어요")).toBeTruthy())
     expect((screen.getByLabelText(alternateTitle) as HTMLInputElement).checked).toBe(true)
 
+    const releaseRewrite = ai.holdNextRewrite()
     await fireEvent.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
-    await waitFor(() => expect(screen.getByText("문구를 변경했어요")).toBeTruthy())
-    const firstRewriteToast = screen.getByText("문구를 변경했어요")
-    await fireEvent.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
-    await waitFor(() => expect(screen.getByText("문구를 변경했어요")).not.toBe(firstRewriteToast))
+
+    const activeRewrite = await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
+    expect((activeRewrite as HTMLButtonElement).disabled).toBe(true)
+    expect(activeRewrite.getAttribute("aria-busy")).toBe("true")
+    const otherRewrite = screen.getByRole("button", { name: "철학 줄이기" })
+    expect((otherRewrite as HTMLButtonElement).disabled).toBe(true)
+    await fireEvent.click(otherRewrite)
+    expect(ai.rewriteCalls).toBe(1)
+
+    releaseRewrite()
+    await waitFor(() => expect(screen.getByText("도입부의 감성을 줄였어요")).toBeTruthy())
+    const persistedIntro = store.draft?.naver.data?.introOptions[0] ?? ""
+    expect(screen.getByText("최근 변경 · 도입부")).toBeTruthy()
+    expect(screen.getByText(persistedIntro, { selector: ".rewrite-preview p" })).toBeTruthy()
+
+    repository.failNextSave = true
+    await fireEvent.click(screen.getByRole("button", { name: "최근 글과 다르게" }))
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("임시 저장 실패"))
+    expect(screen.queryByText("새 제목을 만들었어요")).toBeNull()
+    expect(screen.getByText("최근 변경 · 도입부")).toBeTruthy()
+    expect(screen.getByText(persistedIntro, { selector: ".rewrite-preview p" })).toBeTruthy()
+    expect((screen.getByRole("button", { name: "최근 글과 다르게" }) as HTMLButtonElement).disabled).toBe(false)
 
     store.draft.instagram = { status: "error", data: null, error: "다시 생성 필요" }
     repository.failNextSave = true

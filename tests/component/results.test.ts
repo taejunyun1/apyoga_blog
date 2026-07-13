@@ -25,6 +25,10 @@ const successfulInstagram = { status: "success" as const, error: null, data: ins
 const review = { medicalClaims: [], repetitions: [], privacyWarnings: [], passed: true }
 const fallbackNotice = "AI 연결이 불안정해 로컬 초안을 사용했어요."
 const images = studioImages(3)
+const rewriteProps = {
+  pendingRewriteKey: null,
+  rewritePreviews: {}
+}
 
 function expectEnabledControl(label: string) {
   const control = screen.getByRole("button", { name: label }) as HTMLButtonElement
@@ -33,14 +37,14 @@ function expectEnabledControl(label: string) {
 
 describe("ResultEditor", () => {
   it("describes generated drafts without claiming every result is local demo output", () => {
-    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images } })
+    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images, ...rewriteProps } })
 
     expect(screen.getByText(/생성된 초안/)).toBeTruthy()
     expect(screen.queryByText(/로컬 데모 AI/)).toBeNull()
   })
 
   it("keeps Naver visible and retries only failed Instagram", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images, ...rewriteProps } })
 
     expect(screen.getByText("네이버 글이 준비됐어요")).toBeTruthy()
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
@@ -49,21 +53,21 @@ describe("ResultEditor", () => {
   })
 
   it("requests only a selected-section rewrite", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images, ...rewriteProps } })
     await fireEvent.click(screen.getByRole("button", { name: "도입부 감성 줄이기" }))
 
     expect(emitted().rewrite?.[0]).toEqual([{ channel: "naver", section: "intro", instruction: "감성 줄이기" }])
   })
 
   it("emits the selected title so copy uses the chosen option", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images, ...rewriteProps } })
     await fireEvent.click(screen.getByLabelText("어깨를 여는 시간"))
 
     expect(emitted()["select-option"]?.[0]).toEqual([{ channel: "naver", kind: "title", index: 1 }])
   })
 
   it("keeps the option moved to the copy position visibly selected", async () => {
-    const view = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images } })
+    const view = render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: null, images, ...rewriteProps } })
     const chosen = naverOutput.titles[1]
 
     await fireEvent.click(screen.getByLabelText(chosen))
@@ -78,7 +82,8 @@ describe("ResultEditor", () => {
       instagram: failedInstagram,
       review,
       copyFallback: null,
-      images
+      images,
+      ...rewriteProps
     })
 
     expect((screen.getByLabelText(chosen) as HTMLInputElement).checked).toBe(true)
@@ -86,7 +91,7 @@ describe("ResultEditor", () => {
   })
 
   it("requests simple feedback for channel and direct-text changes", async () => {
-    const { emitted } = render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images } })
+    const { emitted } = render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images, ...rewriteProps } })
 
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
     await fireEvent.update(screen.getByLabelText("기본형 캡션"), "직접 수정한 캡션")
@@ -100,7 +105,7 @@ describe("ResultEditor", () => {
   })
 
   it("shows selectable text when clipboard copy fails", () => {
-    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: "복사할 전체 글", images } })
+    render(ResultEditor, { props: { naver, instagram: failedInstagram, review, copyFallback: "복사할 전체 글", images, ...rewriteProps } })
 
     expect(screen.getByText("길게 눌러 복사해 주세요")).toBeTruthy()
     expect(screen.queryByRole("alert")).toBeNull()
@@ -114,7 +119,8 @@ describe("ResultEditor", () => {
         instagram: successfulInstagram,
         review,
         copyFallback: null,
-        images
+        images,
+        ...rewriteProps
       }
     })
 
@@ -142,7 +148,8 @@ describe("ResultEditor", () => {
         },
         review,
         copyFallback: null,
-        images
+        images,
+        ...rewriteProps
       }
     })
 
@@ -183,7 +190,8 @@ describe("ResultEditor", () => {
         },
         review,
         copyFallback: null,
-        images
+        images,
+        ...rewriteProps
       }
     })
 
@@ -197,5 +205,51 @@ describe("ResultEditor", () => {
     expect(instagramMap.querySelectorAll("li")[0].textContent).toContain("1번째")
     expect(instagramMap.querySelectorAll("li")[0].textContent).toContain("대표 사진")
     expect(screen.getByRole("img", { name: "1번째 사진 photo-3.jpg" }).getAttribute("src")).toBe("blob:photo-3")
+  })
+
+  it("disables every rewrite action and labels the active request while rewriting", () => {
+    render(ResultEditor, {
+      props: {
+        naver,
+        instagram: successfulInstagram,
+        images,
+        review,
+        copyFallback: null,
+        pendingRewriteKey: "naver:body:사진 설명 늘리기",
+        rewritePreviews: {}
+      }
+    })
+
+    const activeRequest = screen.getByRole("button", { name: "사진 설명 늘리기 변경 중…" })
+    expect((activeRequest as HTMLButtonElement).disabled).toBe(true)
+    expect(activeRequest.getAttribute("aria-busy")).toBe("true")
+    expect((screen.getByRole("button", { name: "도입부 감성 줄이기" }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("shows each channel's last rewritten text directly below its actions", async () => {
+    render(ResultEditor, {
+      props: {
+        naver,
+        instagram: successfulInstagram,
+        images,
+        review,
+        copyFallback: null,
+        pendingRewriteKey: null,
+        rewritePreviews: {
+          naver: { section: "title", label: "새 제목", text: "호흡과 감각을 따라간 수련" },
+          instagram: { section: "short", label: "짧은 캡션", text: "천천히 호흡한 수련." }
+        }
+      }
+    })
+
+    expect(screen.getByText("최근 변경 · 새 제목")).toBeTruthy()
+    expect(screen.getByText("호흡과 감각을 따라간 수련")).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
+    expect(screen.getByText("최근 변경 · 짧은 캡션")).toBeTruthy()
+    expect(screen.getByText("천천히 호흡한 수련.")).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole("tab", { name: "네이버 블로그" }))
+    expect(screen.getByText("최근 변경 · 새 제목")).toBeTruthy()
   })
 })
