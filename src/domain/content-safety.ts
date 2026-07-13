@@ -4,7 +4,7 @@ const DIRECT_MEDICAL_CLAIM_PATTERNS = [
   /교정(?:해(?:줍니다|드립니다|드릴수있(?:습니다|어요|다))|합니다|됩니다|할수있(?:습니다|어요|다))/,
 ]
 
-const MEDICAL_RECOVERY_PATTERN = /(?:통증|질환|질병|증상|부상|상처|염증|불편감)(?:이|가|은|는|을|를)?.{0,20}(?:나아집니다|낫습니다|나아질수있(?:습니다|어요|다)|나아지게됩니다|낫게됩니다)/
+const MEDICAL_RECOVERY_PATTERN = /(?:통증|질환|질병|증상|부상|상처|염증|불편감)(?:이|가|은|는|을|를)?.{0,20}?(?:나아집니다|낫습니다|나아질수있(?:습니다|어요|다)|나아지게됩니다|낫게됩니다)/
 const MEDICAL_CLAIM_PATTERNS = [...DIRECT_MEDICAL_CLAIM_PATTERNS, MEDICAL_RECOVERY_PATTERN]
 
 export function forbiddenExpressions(avoid: string): string[] {

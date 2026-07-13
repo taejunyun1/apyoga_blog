@@ -320,6 +320,59 @@ describe("studio workflow store", () => {
     expect(repository.saveCalls).toBe(saveCalls + 1)
   })
 
+  it("rejects an additional recovery claim in a target that already has one", async () => {
+    class AdditionalRecoveryClaimProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return {
+          section: input.section,
+          text: "통증이 나아집니다. 통증이 나아집니다. 오늘 수련 기록입니다."
+        }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new AdditionalRecoveryClaimProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    await store.editResult({
+      channel: "instagram",
+      section: "caption",
+      text: "통증이 나아집니다. 오늘 수련 기록입니다."
+    })
+    const before = snapshot({ instagram: store.draft.instagram, review: store.draft.review, updatedAt: store.draft.updatedAt })
+    const saveCalls = repository.saveCalls
+
+    await expect(store.rewrite({ channel: "instagram", section: "caption", instruction: "기록 문구 변경" }))
+      .rejects.toThrow("의료")
+    expect({ instagram: store.draft.instagram, review: store.draft.review, updatedAt: store.draft.updatedAt }).toEqual(before)
+    expect(repository.saveCalls).toBe(saveCalls)
+  })
+
+  it("allows safe wording changes that retain exactly one existing recovery claim", async () => {
+    class RetainedRecoveryClaimProvider extends LocalAIProvider {
+      override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+        return { section: input.section, text: "통증이 나아집니다. 호흡을 살핀 기록입니다." }
+      }
+    }
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new RetainedRecoveryClaimProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    await store.editResult({
+      channel: "instagram",
+      section: "caption",
+      text: "통증이 나아집니다. 오늘 수련 기록입니다."
+    })
+    const saveCalls = repository.saveCalls
+
+    const result = await store.rewrite({ channel: "instagram", section: "caption", instruction: "기록 문구 변경" })
+
+    expect(result).toEqual({ section: "caption", text: "통증이 나아집니다. 호흡을 살핀 기록입니다." })
+    expect(store.draft.instagram.data?.captionLong).toBe(result.text)
+    expect(repository.saveCalls).toBe(saveCalls + 1)
+  })
+
   it("restores both channels, review, and timestamp when safety review fails", async () => {
     class ReviewFailureProvider extends LocalAIProvider {
       failNextReview = false
