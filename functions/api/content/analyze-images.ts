@@ -6,6 +6,10 @@ import {
   requestOpenAIImageAnalysis,
 } from "../../lib/openai-image-analysis"
 import {
+  recordCompletedOpenAIUsage,
+  usageRatesFromEnv,
+} from "../../lib/usage-accounting"
+import {
   hasExactKeys,
   isBoundedString,
   readJsonBody,
@@ -23,6 +27,11 @@ interface ImageAnalysisDependencies {
   safetyIdentifier(): string | Promise<string>
 }
 
+interface ImageAnalysisRequest {
+  draftId: string
+  input: AnalyzeImagesContentInput
+}
+
 export async function handleImageAnalysis(
   request: Request,
   env: ContentEnv,
@@ -37,9 +46,16 @@ export async function handleImageAnalysis(
   }
   if (!env.OPENAI_API_KEY) return json({ message: "AI 설정을 확인해 주세요." }, 500)
 
-  let input: AnalyzeImagesContentInput
+  let usageRates
   try {
-    input = validateImageAnalysisRequest(await readJsonBody(request, MAX_IMAGE_ANALYSIS_BODY_BYTES))
+    usageRates = usageRatesFromEnv(env)
+  } catch {
+    return json({ message: "AI 설정을 확인해 주세요." }, 500)
+  }
+
+  let parsed: ImageAnalysisRequest
+  try {
+    parsed = validateImageAnalysisRequest(await readJsonBody(request, MAX_IMAGE_ANALYSIS_BODY_BYTES))
   } catch (error) {
     const tooLarge = error instanceof RequestBodyTooLargeError
     return json({ message: tooLarge ? "사진 분석 요청이 너무 커요." : "요청을 확인해 주세요." }, tooLarge ? 413 : 400)
@@ -47,11 +63,18 @@ export async function handleImageAnalysis(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await dependencies.analyze(input, env, {
+      const result = await dependencies.analyze(parsed.input, env, {
         safetyIdentifier: await dependencies.safetyIdentifier(),
         retryInstruction: attempt === 1 ? "모든 사진을 다시 확인하고 구체적인 시각 설명을 작성하세요." : undefined,
       })
-      return json({ source: "openai", data })
+      const usage = await recordCompletedOpenAIUsage(
+        env,
+        parsed.draftId,
+        "image-analysis",
+        result.responseUsage,
+        usageRates,
+      )
+      return json({ source: "openai", data: result.data, usage })
     } catch (error) {
       if (!(error instanceof OpenAIImageAnalysisError) || !error.retryable) break
     }
@@ -59,10 +82,12 @@ export async function handleImageAnalysis(
   return json({ message: "사진을 구체적으로 분석하지 못했어요. 잠시 후 다시 시도해 주세요." }, 502)
 }
 
-function validateImageAnalysisRequest(value: unknown): AnalyzeImagesContentInput {
+function validateImageAnalysisRequest(value: unknown): ImageAnalysisRequest {
   if (!hasExactKeys(value, [
+    "draftId",
     "memo", "mustInclude", "avoid", "writingMode", "naverTone", "instagramTone", "images",
   ])
+    || !isOpaqueDraftId(value.draftId)
     || !isBoundedString(value.memo, 4_000)
     || !value.memo.trim()
     || !isBoundedString(value.mustInclude, 500)
@@ -79,12 +104,18 @@ function validateImageAnalysisRequest(value: unknown): AnalyzeImagesContentInput
     || !value.images.every(isAnalysisImage)) {
     throw new Error("invalid image analysis request")
   }
-  const ids = value.images.map((image) => image.id)
-  const sortOrders = value.images.map((image) => image.sortOrder)
+  const { draftId, ...inputValue } = value
+  const input = inputValue as unknown as AnalyzeImagesContentInput
+  const ids = input.images.map((image) => image.id)
+  const sortOrders = input.images.map((image) => image.sortOrder)
   if (new Set(ids).size !== ids.length || new Set(sortOrders).size !== sortOrders.length) {
     throw new Error("duplicate image reference")
   }
-  return value as unknown as AnalyzeImagesContentInput
+  return { draftId, input }
+}
+
+function isOpaqueDraftId(value: unknown): value is string {
+  return isBoundedString(value, 256) && Boolean(value.trim())
 }
 
 function isAnalysisImage(value: unknown): value is AnalyzeImagesContentInput["images"][number] {

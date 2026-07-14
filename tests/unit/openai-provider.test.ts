@@ -18,7 +18,24 @@ const brief: ContentBrief = {
   userMemoSummary: "어깨와 흉곽을 천천히 연 수련",
 }
 
-const channelInput: ChannelInput = { ...analyzeInput, brief }
+const channelInput: ChannelInput = { ...analyzeInput, brief, draftId: "draft-1" }
+
+const usage = {
+  inputTokens: 120,
+  cachedInputTokens: 20,
+  outputTokens: 80,
+  totalTokens: 200,
+  estimatedKrw: 1,
+  requestCount: 1,
+}
+
+function remoteContent(data: unknown) {
+  return { source: "openai", data, usage }
+}
+
+function remoteGeneration(channel: "naver" | "instagram", data: unknown) {
+  return { channel, ...remoteContent(data) }
+}
 
 const analysisBrief: ContentBrief = {
   ...brief,
@@ -29,6 +46,7 @@ const analysisBrief: ContentBrief = {
 }
 
 const rewriteInput = {
+  draftId: "draft-1",
   channel: "naver" as const,
   section: "intro",
   instruction: "감성 줄이기",
@@ -39,6 +57,7 @@ const rewriteInput = {
 }
 
 const titleBodyRewriteInput = {
+  draftId: "draft-1",
   currentTitle: "호흡으로 돌아본 일요일 수련",
   currentBody: "기존 호흡 기록을 차분하게 이어 갑니다. ".repeat(60),
   instruction: "최근 글과 다르게",
@@ -76,24 +95,51 @@ function validInstagram() {
 }
 
 describe("OpenAIProvider", () => {
+  it("returns a remote usage envelope and a null-usage local fallback", async () => {
+    const remote = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration("naver", validNaver()))),
+      local: new LocalAIProvider(),
+    })
+    const fallback = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 502 })),
+      local: new LocalAIProvider(),
+    })
+
+    await expect(remote.generateNaver(channelInput)).resolves.toEqual({
+      data: expect.objectContaining({ generationSource: "openai" }),
+      usage,
+    })
+    await expect(fallback.generateNaver(channelInput)).resolves.toEqual({
+      data: expect.objectContaining({ generationSource: "local-fallback" }),
+      usage: null,
+    })
+  })
+
   it("posts one structured request and returns a paired Naver title and body rewrite", async () => {
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "rewriteNaverTitleAndBody")
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-      source: "openai",
-      data: remoteTitleBodyRewrite,
-    }))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteContent(remoteTitleBodyRewrite)))
     const provider = new OpenAIProvider({ fetcher, local })
 
     await expect(provider.rewriteNaverTitleAndBody(titleBodyRewriteInput)).resolves.toEqual({
-      title: remoteTitleBodyRewrite.title,
-      body: remoteTitleBodyRewrite.body.trim(),
+      data: {
+        title: remoteTitleBodyRewrite.title,
+        body: remoteTitleBodyRewrite.body.trim(),
+      },
+      usage,
     })
     expect(fetcher).toHaveBeenCalledOnce()
     expect(fetcher.mock.calls[0][0]).toBe("/api/content/rewrite")
     expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      draftId: "draft-1",
       kind: "naver-title-body",
-      ...titleBodyRewriteInput,
+      instruction: titleBodyRewriteInput.instruction,
+      currentTitle: titleBodyRewriteInput.currentTitle,
+      currentBody: titleBodyRewriteInput.currentBody,
+      memo: titleBodyRewriteInput.memo,
+      photoContext: titleBodyRewriteInput.photoContext,
+      avoid: titleBodyRewriteInput.avoid,
+      tone: titleBodyRewriteInput.tone,
     })
     expect(fallback).not.toHaveBeenCalled()
   })
@@ -108,29 +154,40 @@ describe("OpenAIProvider", () => {
 
     const result = await provider.rewriteNaverTitleAndBody(titleBodyRewriteInput)
 
-    expect(result.title).not.toBe(titleBodyRewriteInput.currentTitle)
-    expect(result.body).not.toBe(titleBodyRewriteInput.currentBody)
+    expect(result.data.title).not.toBe(titleBodyRewriteInput.currentTitle)
+    expect(result.data.body).not.toBe(titleBodyRewriteInput.currentBody)
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledWith(titleBodyRewriteInput)
   })
 
   it("sends analysis-only image data to the remote vision endpoint", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ source: "openai", data: analysisBrief }))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteContent(analysisBrief)))
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "analyzeImages")
     const provider = new OpenAIProvider({ fetcher, local })
     const input = {
       ...analyzeInput,
+      draftId: "draft-1",
       images: analyzeInput.images.map((image, index) => ({
         ...image,
         dataUrl: `data:image/jpeg;base64,cGl4ZWxzLTI${index}=`,
       })),
     }
 
-    await expect(provider.analyzeImages(input)).resolves.toEqual(analysisBrief)
+    await expect(provider.analyzeImages(input)).resolves.toEqual({ data: analysisBrief, usage })
     expect(fallback).not.toHaveBeenCalled()
     expect(fetcher).toHaveBeenCalledOnce()
     expect(fetcher.mock.calls[0][0]).toBe("/api/content/analyze-images")
-    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(input)
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      draftId: "draft-1",
+      memo: input.memo,
+      mustInclude: input.mustInclude,
+      avoid: input.avoid,
+      writingMode: input.writingMode,
+      naverTone: input.naverTone,
+      instagramTone: input.instagramTone,
+      images: input.images,
+    })
   })
 
   it("fails visibly instead of producing a generic local brief when vision analysis fails", async () => {
@@ -150,8 +207,7 @@ describe("OpenAIProvider", () => {
 
   it("requests a remote rewrite without photo data", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-      source: "openai",
-      data: { section: "intro", text: "호흡을 살피며 수련을 시작했습니다." },
+      ...remoteContent({ section: "intro", text: "호흡을 살피며 수련을 시작했습니다." }),
     }))
     const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
     const inputWithPrivateImageData = {
@@ -162,8 +218,11 @@ describe("OpenAIProvider", () => {
     }
 
     await expect(provider.rewriteSection(inputWithPrivateImageData)).resolves.toEqual({
-      section: "intro",
-      text: "호흡을 살피며 수련을 시작했습니다.",
+      data: {
+        section: "intro",
+        text: "호흡을 살피며 수련을 시작했습니다.",
+      },
+      usage,
     })
     expect(fetcher).toHaveBeenCalledOnce()
     expect(fetcher.mock.calls[0][0]).toBe("/api/content/rewrite")
@@ -191,13 +250,15 @@ describe("OpenAIProvider", () => {
     const fallback = vi.spyOn(local, "rewriteSection")
     const provider = new OpenAIProvider({
       fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-        source: "openai",
-        data: { section: input.section, text },
+        ...remoteContent({ section: input.section, text }),
       })),
       local,
     })
 
-    await expect(provider.rewriteSection(input)).resolves.toEqual({ section: input.section, text: text.trim() })
+    await expect(provider.rewriteSection(input)).resolves.toEqual({
+      data: { section: input.section, text: text.trim() },
+      usage,
+    })
     expect(fallback).not.toHaveBeenCalled()
   })
 
@@ -206,14 +267,15 @@ describe("OpenAIProvider", () => {
     ["a 502 response", () => new Response(null, { status: 502 })],
     ["malformed JSON", () => new Response("{", { status: 200, headers: { "Content-Type": "application/json" } })],
     ["a non-object envelope", () => Response.json(null)],
-    ["an extra envelope field", () => Response.json({ source: "openai", data: { section: "intro", text: "새 문구" }, traceId: "private" })],
-    ["a non-OpenAI source", () => Response.json({ source: "local-fallback", data: { section: "intro", text: "새 문구" } })],
-    ["an extra data field", () => Response.json({ source: "openai", data: { section: "intro", text: "새 문구", internal: true } })],
-    ["a mismatched section", () => Response.json({ source: "openai", data: { section: "title", text: "새 제목" } })],
-    ["empty text", () => Response.json({ source: "openai", data: { section: "intro", text: "   " } })],
-    ["unchanged text", () => Response.json({ source: "openai", data: { section: "intro", text: rewriteInput.currentText } })],
-    ["a forbidden expression", () => Response.json({ source: "openai", data: { section: "intro", text: "치료를 위한 글" } })],
-    ["a direct medical claim", () => Response.json({ source: "openai", data: { section: "intro", text: "통증이 나아집니다." } })],
+    ["a missing usage field", () => Response.json({ source: "openai", data: { section: "intro", text: "새 문구" } })],
+    ["an extra envelope field", () => Response.json({ ...remoteContent({ section: "intro", text: "새 문구" }), traceId: "private" })],
+    ["a non-OpenAI source", () => Response.json({ ...remoteContent({ section: "intro", text: "새 문구" }), source: "local-fallback" })],
+    ["an extra data field", () => Response.json(remoteContent({ section: "intro", text: "새 문구", internal: true }))],
+    ["a mismatched section", () => Response.json(remoteContent({ section: "title", text: "새 제목" }))],
+    ["empty text", () => Response.json(remoteContent({ section: "intro", text: "   " }))],
+    ["unchanged text", () => Response.json(remoteContent({ section: "intro", text: rewriteInput.currentText }))],
+    ["a forbidden expression", () => Response.json(remoteContent({ section: "intro", text: "치료를 위한 글" }))],
+    ["a direct medical claim", () => Response.json(remoteContent({ section: "intro", text: "통증이 나아집니다." }))],
   ])("uses the local rewrite once for %s", async (_label, response) => {
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "rewriteSection")
@@ -224,7 +286,8 @@ describe("OpenAIProvider", () => {
 
     const result = await provider.rewriteSection(rewriteInput)
 
-    expect(result.text).not.toBe(rewriteInput.currentText)
+    expect(result.data.text).not.toBe(rewriteInput.currentText)
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -238,7 +301,8 @@ describe("OpenAIProvider", () => {
 
     const result = await provider.rewriteSection(rewriteInput)
 
-    expect(result.text).not.toBe(rewriteInput.currentText)
+    expect(result.data.text).not.toBe(rewriteInput.currentText)
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -258,15 +322,15 @@ describe("OpenAIProvider", () => {
     const fallback = vi.spyOn(local, "rewriteSection")
     const provider = new OpenAIProvider({
       fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-        source: "openai",
-        data: { section: input.section, text },
+        ...remoteContent({ section: input.section, text }),
       })),
       local,
     })
 
     const result = await provider.rewriteSection(input)
 
-    expect(result.text).not.toBe(input.currentText)
+    expect(result.data.text).not.toBe(input.currentText)
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -289,22 +353,24 @@ describe("OpenAIProvider", () => {
     ["naver", validNaver()],
     ["instagram", validInstagram()],
   ] as const)("requests %s without image binaries or private image metadata", async (channel, data) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel, source: "openai", data }))
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration(channel, data)))
     const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
 
     const result = channel === "naver"
       ? await provider.generateNaver(channelInput)
       : await provider.generateInstagram(channelInput)
 
-    expect(result.generationSource).toBe("openai")
-    expect(result.qualityChecks.avoidedExpressionRemoved).toBe(true)
-    expect(result.qualityChecks).not.toHaveProperty("distinctFromNaver")
+    expect(result.data.generationSource).toBe("openai")
+    expect(result.data.qualityChecks.avoidedExpressionRemoved).toBe(true)
+    expect(result.data.qualityChecks).not.toHaveProperty("distinctFromNaver")
+    expect(result.usage).toEqual(usage)
     expect(fetcher).toHaveBeenCalledOnce()
     const init = fetcher.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(init.body))
     expect(fetcher.mock.calls[0][0]).toBe("/api/content/generate")
     expect(init).toMatchObject({ method: "POST", credentials: "same-origin" })
     expect(body).toEqual({
+      draftId: "draft-1",
       channel,
       input: {
         memo: channelInput.memo,
@@ -348,8 +414,8 @@ describe("OpenAIProvider", () => {
   it.each([
     ["malformed JSON", () => new Response("{", { status: 200, headers: { "Content-Type": "application/json" } })],
     ["a non-object envelope", () => Response.json(null)],
-    ["a mismatched channel", () => Response.json({ channel: "instagram", source: "openai", data: validNaver() })],
-    ["a non-OpenAI source", () => Response.json({ channel: "naver", source: "local-fallback", data: validNaver() })],
+    ["a mismatched channel", () => Response.json(remoteGeneration("instagram", validNaver()))],
+    ["a non-OpenAI source", () => Response.json({ ...remoteGeneration("naver", validNaver()), source: "local-fallback" })],
   ])("falls back locally when a 2xx response has %s", async (_label, response) => {
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "generateNaver")
@@ -360,7 +426,8 @@ describe("OpenAIProvider", () => {
 
     const result = await provider.generateNaver(channelInput)
 
-    expect(result.generationSource).toBe("local-fallback")
+    expect(result.data.generationSource).toBe("local-fallback")
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -378,13 +445,14 @@ describe("OpenAIProvider", () => {
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "generateNaver")
     const provider = new OpenAIProvider({
-      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel: "naver", source: "openai", data })),
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration("naver", data))),
       local,
     })
 
     const result = await provider.generateNaver(channelInput)
 
-    expect(result.generationSource).toBe("local-fallback")
+    expect(result.data.generationSource).toBe("local-fallback")
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -401,13 +469,14 @@ describe("OpenAIProvider", () => {
     const local = new LocalAIProvider()
     const fallback = vi.spyOn(local, "generateInstagram")
     const provider = new OpenAIProvider({
-      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel: "instagram", source: "openai", data })),
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration("instagram", data))),
       local,
     })
 
     const result = await provider.generateInstagram(channelInput)
 
-    expect(result.generationSource).toBe("local-fallback")
+    expect(result.data.generationSource).toBe("local-fallback")
+    expect(result.usage).toBeNull()
     expect(fallback).toHaveBeenCalledOnce()
   })
 
@@ -416,7 +485,7 @@ describe("OpenAIProvider", () => {
     ["instagram", { ...validInstagram(), hookOptions: ["치료를 말하지 않는 기록", ...validInstagram().hookOptions.slice(1)] }],
   ] as const)("checks forbidden expressions in every %s publishable field", async (channel, data) => {
     const provider = new OpenAIProvider({
-      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ channel, source: "openai", data })),
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration(channel, data))),
       local: new LocalAIProvider(),
     })
 
@@ -424,9 +493,10 @@ describe("OpenAIProvider", () => {
       ? await provider.generateNaver(channelInput)
       : await provider.generateInstagram(channelInput)
 
-    expect(result.generationSource).toBe("openai")
-    expect(result.qualityChecks.avoidedExpressionRemoved).toBe(false)
-    expect(result.qualityChecks).not.toHaveProperty("distinctFromNaver")
+    expect(result.data.generationSource).toBe("openai")
+    expect(result.data.qualityChecks.avoidedExpressionRemoved).toBe(false)
+    expect(result.data.qualityChecks).not.toHaveProperty("distinctFromNaver")
+    expect(result.usage).toEqual(usage)
   })
 
   it.each([401, 403])("requires authentication for %s without using local fallback", async (status) => {

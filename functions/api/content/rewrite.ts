@@ -12,6 +12,10 @@ import {
   requestOpenAIRewrite,
 } from "../../lib/openai-content"
 import {
+  recordCompletedOpenAIUsage,
+  usageRatesFromEnv,
+} from "../../lib/usage-accounting"
+import {
   hasExactKeys,
   isBoundedString,
   MAX_BODY_BYTES,
@@ -30,6 +34,11 @@ interface RewriteDependencies {
   rewrite: typeof requestOpenAIRewrite
   rewriteTitleAndBody: typeof requestOpenAINaverTitleAndBodyRewrite
   safetyIdentifier(): string | Promise<string>
+}
+
+interface RewriteRequest {
+  draftId: string
+  input: RewriteContentInput | RewriteNaverTitleAndBodyContentInput
 }
 
 export async function handleContentRewrite(
@@ -52,9 +61,16 @@ export async function handleContentRewrite(
     return json({ message: "AI 설정을 확인해 주세요." }, 500)
   }
 
-  let input: RewriteContentInput | RewriteNaverTitleAndBodyContentInput
+  let usageRates
   try {
-    input = validateRewriteRequest(await readJsonBody(request))
+    usageRates = usageRatesFromEnv(env)
+  } catch {
+    return json({ message: "AI 설정을 확인해 주세요." }, 500)
+  }
+
+  let parsed: RewriteRequest
+  try {
+    parsed = validateRewriteRequest(await readJsonBody(request))
   } catch (error) {
     return json(
       { message: error instanceof RequestBodyTooLargeError ? "입력 내용이 너무 길어요." : "요청을 확인해 주세요." },
@@ -62,16 +78,23 @@ export async function handleContentRewrite(
     )
   }
 
-  if ("kind" in input && input.kind === "naver-title-body") {
+  if ("kind" in parsed.input && parsed.input.kind === "naver-title-body") {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const data = await dependencies.rewriteTitleAndBody(input, env, {
+        const result = await dependencies.rewriteTitleAndBody(parsed.input, env, {
           safetyIdentifier: await dependencies.safetyIdentifier(),
           retryInstruction: attempt === 1
             ? "이전 결과의 오류를 수정하고 모든 재작성 제약을 충족하세요."
             : undefined,
         })
-        return json({ source: "openai", data: { title: data.title, body: data.body } })
+        const usage = await recordCompletedOpenAIUsage(
+          env,
+          parsed.draftId,
+          "naver-title-body",
+          result.responseUsage,
+          usageRates,
+        )
+        return json({ source: "openai", data: { title: result.data.title, body: result.data.body }, usage })
       } catch (error) {
         if (!(error instanceof OpenAIContentError) || !error.retryable) break
       }
@@ -79,18 +102,26 @@ export async function handleContentRewrite(
     return json({ message: "AI 재작성이 지연되어 로컬 재작성으로 전환합니다." }, 502)
   }
 
-  const sectionInput = input as RewriteContentInput
+  const sectionInput = parsed.input as RewriteContentInput
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await dependencies.rewrite(sectionInput, env, {
+      const result = await dependencies.rewrite(sectionInput, env, {
         safetyIdentifier: await dependencies.safetyIdentifier(),
         retryInstruction: attempt === 1
           ? "이전 결과의 오류를 수정하고 모든 재작성 제약을 충족하세요."
           : undefined,
       })
+      const usage = await recordCompletedOpenAIUsage(
+        env,
+        parsed.draftId,
+        "rewrite",
+        result.responseUsage,
+        usageRates,
+      )
       return json({
         source: "openai",
-        data: { section: data.section, text: data.text },
+        data: { section: result.data.section, text: result.data.text },
+        usage,
       })
     } catch (error) {
       if (!(error instanceof OpenAIContentError) || !error.retryable) break
@@ -100,7 +131,15 @@ export async function handleContentRewrite(
   return json({ message: "AI 재작성이 지연되어 로컬 재작성으로 전환합니다." }, 502)
 }
 
-function validateRewriteRequest(value: unknown): RewriteContentInput | RewriteNaverTitleAndBodyContentInput {
+function validateRewriteRequest(value: unknown): RewriteRequest {
+  if (!isRecord(value) || !isOpaqueDraftId(value.draftId)) {
+    throw new Error("invalid rewrite request")
+  }
+  const { draftId, ...input } = value
+  return { draftId, input: validateRewriteInput(input) }
+}
+
+function validateRewriteInput(value: unknown): RewriteContentInput | RewriteNaverTitleAndBodyContentInput {
   if (hasExactKeys(value, [
     "kind",
     "instruction",
@@ -152,6 +191,14 @@ function validateRewriteRequest(value: unknown): RewriteContentInput | RewriteNa
     throw new Error("invalid rewrite request")
   }
   return value as unknown as RewriteContentInput
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isOpaqueDraftId(value: unknown): value is string {
+  return isBoundedString(value, 256) && Boolean(value.trim())
 }
 
 export const onRequestPost: PagesHandler<ContentEnv> = ({ request, env }) => (

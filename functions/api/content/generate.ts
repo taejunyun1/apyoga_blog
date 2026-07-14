@@ -3,6 +3,10 @@ import type { ContentEnv, PagesHandler } from "../../lib/env"
 import { isSameOriginJson, json } from "../../lib/http"
 import { OpenAIContentError, requestOpenAIContent } from "../../lib/openai-content"
 import {
+  recordCompletedOpenAIUsage,
+  usageRatesFromEnv,
+} from "../../lib/usage-accounting"
+import {
   hasExactKeys,
   isBoundedString,
   MAX_BODY_BYTES,
@@ -22,6 +26,7 @@ const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
 const TONES = new Set<GenerateContentInput["tone"]>(["plain", "emotional", "deep"])
 
 interface ContentRequest {
+  draftId: string
   channel: ContentChannel
   input: GenerateContentInput
 }
@@ -51,6 +56,13 @@ export async function handleContentGeneration(
     return json({ message: "AI 설정을 확인해 주세요." }, 500)
   }
 
+  let usageRates
+  try {
+    usageRates = usageRatesFromEnv(env)
+  } catch {
+    return json({ message: "AI 설정을 확인해 주세요." }, 500)
+  }
+
   let parsed: ContentRequest
   try {
     parsed = validateContentRequest(await readJsonBody(request))
@@ -63,13 +75,20 @@ export async function handleContentGeneration(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await dependencies.generate(parsed.channel, parsed.input, env, {
+      const result = await dependencies.generate(parsed.channel, parsed.input, env, {
         safetyIdentifier: await dependencies.safetyIdentifier(),
         retryInstruction: attempt === 1
           ? "이전 결과의 오류를 수정하고 모든 제약을 충족하세요."
           : undefined,
       })
-      return json({ channel: parsed.channel, source: "openai", data })
+      const usage = await recordCompletedOpenAIUsage(
+        env,
+        parsed.draftId,
+        parsed.channel,
+        result.responseUsage,
+        usageRates,
+      )
+      return json({ channel: parsed.channel, source: "openai", data: result.data, usage })
     } catch (error) {
       if (!(error instanceof OpenAIContentError) || !error.retryable) break
     }
@@ -84,12 +103,17 @@ export async function hashedSafetyIdentifier(account: string): Promise<string> {
 }
 
 function validateContentRequest(value: unknown): ContentRequest {
-  if (!hasExactKeys(value, ["channel", "input"])
+  if (!hasExactKeys(value, ["draftId", "channel", "input"])
+    || !isOpaqueDraftId(value.draftId)
     || (value.channel !== "naver" && value.channel !== "instagram")
     || !isGenerateContentInput(value.input)) {
     throw new Error("invalid content request")
   }
   return value as unknown as ContentRequest
+}
+
+function isOpaqueDraftId(value: unknown): value is string {
+  return isBoundedString(value, 256) && Boolean(value.trim())
 }
 
 function isGenerateContentInput(value: unknown): value is GenerateContentInput {

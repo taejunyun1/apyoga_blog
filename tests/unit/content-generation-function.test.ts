@@ -9,7 +9,7 @@ import type {
 } from "../../functions/lib/content-types"
 import type { ContentEnv } from "../../functions/lib/env"
 import { OpenAIContentError } from "../../functions/lib/openai-content"
-import { fakeAuthDatabase } from "./auth-env-fixtures"
+import { fakeAuthDatabase, fakeUsageDatabase } from "./auth-env-fixtures"
 
 const env: ContentEnv = {
   AUTH_USERNAME: "studio-user",
@@ -22,6 +22,15 @@ const env: ContentEnv = {
   },
   AUTH_DB: fakeAuthDatabase(),
   OPENAI_API_KEY: "test-key",
+  OPENAI_INPUT_KRW_PER_MILLION: "1522.44",
+  OPENAI_CACHED_INPUT_KRW_PER_MILLION: "152.244",
+  OPENAI_OUTPUT_KRW_PER_MILLION: "9134.64",
+}
+
+const responseUsage = { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 }
+
+function openAIResult<T>(data: T) {
+  return { data, responseUsage }
 }
 
 function validInput(): GenerateContentInput {
@@ -57,6 +66,7 @@ function requestFor(
   channel: unknown,
   input: unknown,
   headers: HeadersInit = {},
+  draftId = "draft-1",
 ): Request {
   return new Request("https://studio.example/api/content/generate", {
     method: "POST",
@@ -65,11 +75,11 @@ function requestFor(
       "Content-Type": "application/json",
       ...headers,
     },
-    body: JSON.stringify({ channel, input }),
+    body: JSON.stringify({ draftId, channel, input }),
   })
 }
 
-function dependencies(generate = vi.fn().mockResolvedValue(validNaver())) {
+function dependencies(generate = vi.fn().mockResolvedValue(openAIResult(validNaver()))) {
   return {
     generate,
     safetyIdentifier: vi.fn().mockResolvedValue("hashed-user"),
@@ -77,6 +87,40 @@ function dependencies(generate = vi.fn().mockResolvedValue(validNaver())) {
 }
 
 describe("content generation Pages Function", () => {
+  it("requires a bounded draft id, records Naver usage, and returns the persisted request total", async () => {
+    const database = fakeUsageDatabase()
+    const response = await handleContentGeneration(
+      requestFor("naver", validInput()),
+      { ...env, AUTH_DB: database },
+      dependencies(),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      channel: "naver",
+      source: "openai",
+      data: validNaver(),
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 20,
+        outputTokens: 80,
+        totalTokens: 200,
+        estimatedKrw: expect.any(Number),
+        requestCount: 1,
+      },
+    })
+    expect(database.lastBoundValues).toEqual([
+      "draft-1", "naver", "gpt-5.6-luna", 120, 20, 80, expect.any(Number), expect.any(String),
+    ])
+
+    const missingDraftId = await handleContentGeneration(
+      requestFor("naver", validInput(), {}, ""),
+      env,
+      dependencies(),
+    )
+    expect(missingDraftId.status).toBe(400)
+  })
+
   it("rejects cross-origin and oversized content requests", async () => {
     const crossOrigin = requestFor("naver", validInput(), { Origin: "https://attacker.example" })
     expect((await handleContentGeneration(crossOrigin, env, dependencies())).status).toBe(403)
@@ -182,7 +226,7 @@ describe("content generation Pages Function", () => {
       },
     }],
   ])("rejects invalid input: %s", async (_label, body) => {
-    const generate = vi.fn().mockResolvedValue(validNaver())
+    const generate = vi.fn().mockResolvedValue(openAIResult(validNaver()))
     const request = requestFor(body.channel, body.input)
 
     const response = await handleContentGeneration(request, env, dependencies(generate))
@@ -206,7 +250,7 @@ describe("content generation Pages Function", () => {
   })
 
   it("fails closed before generation when the API key binding is missing", async () => {
-    const generate = vi.fn().mockResolvedValue(validNaver())
+    const generate = vi.fn().mockResolvedValue(openAIResult(validNaver()))
 
     const response = await handleContentGeneration(
       requestFor("naver", validInput()),
@@ -230,7 +274,7 @@ describe("content generation Pages Function", () => {
   it("retries a short Naver result once and returns the second result", async () => {
     const generate = vi.fn()
       .mockRejectedValueOnce(new OpenAIContentError("네이버 본문은 500자 이상이어야 해요.", true))
-      .mockResolvedValueOnce(validNaver())
+      .mockResolvedValueOnce(openAIResult(validNaver()))
     const safetyIdentifier = vi.fn().mockResolvedValue("hashed-user")
 
     const response = await handleContentGeneration(

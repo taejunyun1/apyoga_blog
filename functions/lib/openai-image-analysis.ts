@@ -1,5 +1,9 @@
 import type { ContentEnv } from "./env"
 import type { AnalyzeImagesContentInput, ImageAnalysisResult } from "./content-types"
+import {
+  parseOpenAIResponseUsage,
+  type OpenAIResponseUsage,
+} from "./usage"
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 const MODEL = "gpt-5.6-luna"
@@ -7,6 +11,11 @@ const GENERIC_VISUAL_WORDS = new Set([
   "첫번째", "두번째", "세번째", "네번째", "다섯번째", "여섯번째", "일곱번째", "여덟번째", "아홉번째", "열번째",
   "번째", "사진", "이미지", "수련", "요가", "장면", "모습", "동작",
 ])
+
+export interface OpenAIImageAnalysisResponse {
+  data: ImageAnalysisResult
+  responseUsage: OpenAIResponseUsage
+}
 
 export class OpenAIImageAnalysisError extends Error {
   constructor(message: string, readonly retryable: boolean) {
@@ -19,7 +28,7 @@ export async function requestOpenAIImageAnalysis(
   input: AnalyzeImagesContentInput,
   env: Pick<ContentEnv, "OPENAI_API_KEY">,
   options: { fetcher?: typeof fetch; safetyIdentifier: string; retryInstruction?: string },
-): Promise<ImageAnalysisResult> {
+): Promise<OpenAIImageAnalysisResponse> {
   const context = {
     memo: input.memo,
     mustInclude: input.mustInclude,
@@ -82,7 +91,8 @@ export async function requestOpenAIImageAnalysis(
     if (error instanceof OpenAIImageAnalysisError) throw error
     throw new OpenAIImageAnalysisError("사진 분석 응답 형식이 올바르지 않아요.", true)
   }
-  return validateImageAnalysis(value, input)
+  const data = validateImageAnalysis(value, input)
+  return { data, responseUsage: parseOpenAIResponseUsage(payload) }
 }
 
 export function validateImageAnalysis(

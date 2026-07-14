@@ -1,4 +1,8 @@
 import type { ContentEnv } from "./env"
+import {
+  parseOpenAIResponseUsage,
+  type OpenAIResponseUsage,
+} from "./usage"
 import type {
   ContentChannel,
   GenerateContentInput,
@@ -31,6 +35,11 @@ interface JsonSchema {
   [key: string]: unknown
 }
 
+export interface OpenAIContentResponse<T> {
+  data: T
+  responseUsage: OpenAIResponseUsage
+}
+
 export class OpenAIContentError extends Error {
   constructor(message: string, readonly retryable: boolean) {
     super(message)
@@ -43,7 +52,7 @@ export async function requestOpenAIContent(
   input: GenerateContentInput,
   env: Pick<ContentEnv, "OPENAI_API_KEY">,
   options: { fetcher?: typeof fetch; safetyIdentifier: string; retryInstruction?: string },
-): Promise<GeneratedContent> {
+): Promise<OpenAIContentResponse<GeneratedContent>> {
   let response: Response
   try {
     response = await (options.fetcher ?? fetch)(OPENAI_RESPONSES_URL, {
@@ -92,14 +101,15 @@ export async function requestOpenAIContent(
   } catch {
     throw new OpenAIContentError("AI 응답 형식이 올바르지 않아요.", true)
   }
-  return validateGeneratedContent(channel, value, input)
+  const data = validateGeneratedContent(channel, value, input)
+  return { data, responseUsage: parseOpenAIResponseUsage(payload) }
 }
 
 export async function requestOpenAIRewrite(
   input: RewriteContentInput,
   env: Pick<ContentEnv, "OPENAI_API_KEY">,
   options: { fetcher?: typeof fetch; safetyIdentifier: string; retryInstruction?: string },
-): Promise<RewrittenContent> {
+): Promise<OpenAIContentResponse<RewrittenContent>> {
   let response: Response
   try {
     response = await (options.fetcher ?? fetch)(OPENAI_RESPONSES_URL, {
@@ -143,14 +153,15 @@ export async function requestOpenAIRewrite(
     if (error instanceof OpenAIContentError) throw error
     throw new OpenAIContentError("AI 응답 형식이 올바르지 않아요.", true)
   }
-  return validateRewriteContent(value, input)
+  const data = validateRewriteContent(value, input)
+  return { data, responseUsage: parseOpenAIResponseUsage(payload) }
 }
 
 export async function requestOpenAINaverTitleAndBodyRewrite(
   input: RewriteNaverTitleAndBodyContentInput,
   env: Pick<ContentEnv, "OPENAI_API_KEY">,
   options: { fetcher?: typeof fetch; safetyIdentifier: string; retryInstruction?: string },
-): Promise<RewrittenNaverTitleAndBodyContent> {
+): Promise<OpenAIContentResponse<RewrittenNaverTitleAndBodyContent>> {
   let response: Response
   try {
     response = await (options.fetcher ?? fetch)(OPENAI_RESPONSES_URL, {
@@ -194,7 +205,8 @@ export async function requestOpenAINaverTitleAndBodyRewrite(
     if (error instanceof OpenAIContentError) throw error
     throw new OpenAIContentError("AI 응답 형식이 올바르지 않아요.", true)
   }
-  return validateNaverTitleAndBodyRewrite(value, input)
+  const data = validateNaverTitleAndBodyRewrite(value, input)
+  return { data, responseUsage: parseOpenAIResponseUsage(payload) }
 }
 
 export function validateGeneratedContent(

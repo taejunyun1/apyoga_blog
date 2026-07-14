@@ -52,6 +52,11 @@ function validInstagram(): GeneratedInstagram {
 function completed(value: unknown): Response {
   return Response.json({
     status: "completed",
+    usage: {
+      input_tokens: 120,
+      output_tokens: 80,
+      input_tokens_details: { cached_tokens: 20 },
+    },
     output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }],
   })
 }
@@ -80,6 +85,15 @@ async function expectRetryable(result: Promise<unknown>, message?: string): Prom
 }
 
 describe("OpenAI content client", () => {
+  it("returns validated generated content together with completed Responses usage", async () => {
+    const { result } = requestContent("naver", completed(validNaver()))
+
+    await expect(result).resolves.toEqual({
+      data: validNaver(),
+      responseUsage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 },
+    })
+  })
+
   it.each([
     ["naver", { ...validNaver(), body: `${validNaver().body} 첫 번째 사진에는 큰 창과 매트가 보입니다.` }],
     ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 2번째 사진은 나무 바닥을 보여 줍니다.` }],

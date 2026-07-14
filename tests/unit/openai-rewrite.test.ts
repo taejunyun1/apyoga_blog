@@ -42,6 +42,11 @@ const input: RewriteContentInput = {
 function completed(text: string, section = "intro") {
   return Response.json({
     status: "completed",
+    usage: {
+      input_tokens: 120,
+      output_tokens: 80,
+      input_tokens_details: { cached_tokens: 20 },
+    },
     output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ section, text }) }] }],
   })
 }
@@ -60,6 +65,11 @@ const titleBodyInput: TitleBodyInput = {
 function completedTitleBody(title: string, body: string) {
   return Response.json({
     status: "completed",
+    usage: {
+      input_tokens: 120,
+      output_tokens: 80,
+      input_tokens_details: { cached_tokens: 20 },
+    },
     output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ title, body }) }] }],
   })
 }
@@ -78,8 +88,11 @@ describe("OpenAI rewrite content", () => {
     })
 
     expect(result).toEqual({
-      title: "고요한 공간에서 이어진 일요일의 호흡",
-      body: "새로운 감성 본문 ".repeat(100).trim(),
+      data: {
+        title: "고요한 공간에서 이어진 일요일의 호흡",
+        body: "새로운 감성 본문 ".repeat(100).trim(),
+      },
+      responseUsage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 },
     })
     const init = fetcher.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(init.body))
@@ -106,7 +119,10 @@ describe("OpenAI rewrite content", () => {
       safetyIdentifier: "hashed-user",
     })
 
-    expect(result).toEqual({ section: "intro", text: "호흡을 살피며 수련을 시작했습니다." })
+    expect(result).toEqual({
+      data: { section: "intro", text: "호흡을 살피며 수련을 시작했습니다." },
+      responseUsage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 },
+    })
     const init = fetcher.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(init.body))
     expect(body).toMatchObject({ store: false, safety_identifier: "hashed-user" })

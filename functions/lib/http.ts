@@ -27,5 +27,9 @@ export function expiredSessionCookie(): string {
 }
 
 export function isSameOriginJson(request: Request): boolean {
-  return request.headers.get("Origin") === new URL(request.url).origin && request.headers.get("Content-Type")?.split(";", 1)[0] === "application/json"
+  return isSameOriginRequest(request) && request.headers.get("Content-Type")?.split(";", 1)[0] === "application/json"
+}
+
+export function isSameOriginRequest(request: Request): boolean {
+  return request.headers.get("Origin") === new URL(request.url).origin
 }

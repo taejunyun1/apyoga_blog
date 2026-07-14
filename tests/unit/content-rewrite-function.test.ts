@@ -16,6 +16,15 @@ const env: ContentEnv = {
   },
   AUTH_DB: fakeAuthDatabase(),
   OPENAI_API_KEY: "test-key",
+  OPENAI_INPUT_KRW_PER_MILLION: "1522.44",
+  OPENAI_CACHED_INPUT_KRW_PER_MILLION: "152.244",
+  OPENAI_OUTPUT_KRW_PER_MILLION: "9134.64",
+}
+
+const responseUsage = { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 }
+
+function openAIResult<T>(data: T) {
+  return { data, responseUsage }
 }
 
 function validInput(): RewriteContentInput {
@@ -43,7 +52,7 @@ function validTitleBodyInput() {
   }
 }
 
-function requestFor(input: unknown, headers: HeadersInit = {}): Request {
+function requestFor(input: unknown, headers: HeadersInit = {}, draftId = "draft-1"): Request {
   return new Request("https://studio.example/api/content/rewrite", {
     method: "POST",
     headers: {
@@ -51,17 +60,17 @@ function requestFor(input: unknown, headers: HeadersInit = {}): Request {
       "Content-Type": "application/json",
       ...headers,
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ draftId, ...(input as object) }),
   })
 }
 
-function dependencies(rewrite = vi.fn().mockResolvedValue({
+function dependencies(rewrite = vi.fn().mockResolvedValue(openAIResult({
   section: "intro",
   text: "호흡을 살피며 시작했습니다.",
-}), rewriteTitleAndBody = vi.fn().mockResolvedValue({
+})), rewriteTitleAndBody = vi.fn().mockResolvedValue(openAIResult({
   title: "새 제목",
   body: "새 본문 ".repeat(100),
-})) {
+}))) {
   return {
     rewrite,
     rewriteTitleAndBody,
@@ -71,10 +80,10 @@ function dependencies(rewrite = vi.fn().mockResolvedValue({
 
 describe("content rewrite Pages Function", () => {
   it("routes a valid title-body request to one paired rewrite dependency", async () => {
-    const rewriteTitleAndBody = vi.fn().mockResolvedValue({
+    const rewriteTitleAndBody = vi.fn().mockResolvedValue(openAIResult({
       title: "고요한 공간에서 이어진 일요일의 호흡",
       body: "새로운 감성 본문 ".repeat(100),
-    })
+    }))
     const response = await handleContentRewrite(requestFor(validTitleBodyInput()), env, {
       ...dependencies(),
       rewriteTitleAndBody,
@@ -86,6 +95,14 @@ describe("content rewrite Pages Function", () => {
       data: {
         title: "고요한 공간에서 이어진 일요일의 호흡",
         body: "새로운 감성 본문 ".repeat(100),
+      },
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 20,
+        outputTokens: 80,
+        totalTokens: 200,
+        estimatedKrw: expect.any(Number),
+        requestCount: 1,
       },
     })
     expect(rewriteTitleAndBody).toHaveBeenCalledOnce()
@@ -155,23 +172,31 @@ describe("content rewrite Pages Function", () => {
   })
 
   it("returns only source and rewritten data", async () => {
-    const rewrite = vi.fn().mockResolvedValue({
+    const rewrite = vi.fn().mockResolvedValue(openAIResult({
       section: "intro",
       text: "호흡을 살피며 시작했습니다.",
       internal: "must-not-be-exposed",
-    })
+    }))
     const response = await handleContentRewrite(requestFor(validInput()), env, dependencies(rewrite))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       source: "openai",
       data: { section: "intro", text: "호흡을 살피며 시작했습니다." },
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 20,
+        outputTokens: 80,
+        totalTokens: 200,
+        estimatedKrw: expect.any(Number),
+        requestCount: 1,
+      },
     })
   })
 
   it("retries one retryable validation failure and returns the second rewrite", async () => {
     const rewrite = vi.fn()
       .mockRejectedValueOnce(new OpenAIContentError("invalid", true))
-      .mockResolvedValueOnce({ section: "intro", text: "두 번째 재작성 문구" })
+      .mockResolvedValueOnce(openAIResult({ section: "intro", text: "두 번째 재작성 문구" }))
     const response = await handleContentRewrite(requestFor(validInput()), env, dependencies(rewrite))
     expect(response.status).toBe(200)
     expect(rewrite).toHaveBeenCalledTimes(2)

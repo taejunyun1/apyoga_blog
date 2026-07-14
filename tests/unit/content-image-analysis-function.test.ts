@@ -5,7 +5,7 @@ import {
 } from "../../functions/api/content/analyze-images"
 import type { ContentEnv } from "../../functions/lib/env"
 import { OpenAIImageAnalysisError } from "../../functions/lib/openai-image-analysis"
-import { fakeAuthDatabase } from "./auth-env-fixtures"
+import { fakeAuthDatabase, fakeUsageDatabase } from "./auth-env-fixtures"
 
 const env: ContentEnv = {
   AUTH_USERNAME: "studio-user",
@@ -18,9 +18,19 @@ const env: ContentEnv = {
   },
   AUTH_DB: fakeAuthDatabase(),
   OPENAI_API_KEY: "test-key",
+  OPENAI_INPUT_KRW_PER_MILLION: "1522.44",
+  OPENAI_CACHED_INPUT_KRW_PER_MILLION: "152.244",
+  OPENAI_OUTPUT_KRW_PER_MILLION: "9134.64",
+}
+
+const responseUsage = { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 }
+
+function openAIResult<T>(data: T) {
+  return { data, responseUsage }
 }
 
 const validBody = {
+  draftId: "draft-1",
   memo: "햇살이 들어오는 공간에서 호흡을 살핀 수련",
   mustInclude: "호흡",
   avoid: "치료, 완치",
@@ -62,15 +72,34 @@ function request(body: unknown, headers: HeadersInit = {}) {
 
 describe("image analysis Pages Function", () => {
   it("accepts only bounded same-origin JPEG data URLs and returns the structured brief", async () => {
-    const analyze = vi.fn().mockResolvedValue(validAnalysis)
-    const response = await handleImageAnalysis(request(validBody), env, {
+    const database = fakeUsageDatabase()
+    const analyze = vi.fn().mockResolvedValue(openAIResult(validAnalysis))
+    const response = await handleImageAnalysis(request(validBody), { ...env, AUTH_DB: database }, {
       analyze,
       safetyIdentifier: vi.fn().mockResolvedValue("hashed-user"),
     })
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ source: "openai", data: validAnalysis })
-    expect(analyze).toHaveBeenCalledWith(validBody, env, expect.objectContaining({ safetyIdentifier: "hashed-user" }))
+    await expect(response.json()).resolves.toEqual({
+      source: "openai",
+      data: validAnalysis,
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 20,
+        outputTokens: 80,
+        totalTokens: 200,
+        estimatedKrw: expect.any(Number),
+        requestCount: 1,
+      },
+    })
+    expect(analyze).toHaveBeenCalledWith(
+      expect.objectContaining({ memo: validBody.memo }),
+      expect.objectContaining({ OPENAI_API_KEY: "test-key" }),
+      expect.objectContaining({ safetyIdentifier: "hashed-user" }),
+    )
+    expect(database.lastBoundValues).toEqual([
+      "draft-1", "image-analysis", "gpt-5.6-luna", 120, 20, 80, expect.any(Number), expect.any(String),
+    ])
   })
 
   it.each([
@@ -86,7 +115,7 @@ describe("image analysis Pages Function", () => {
   it("retries one retryable OpenAI failure and never returns a generic local brief", async () => {
     const analyze = vi.fn()
       .mockRejectedValueOnce(new OpenAIImageAnalysisError("retry", true))
-      .mockResolvedValueOnce(validAnalysis)
+      .mockResolvedValueOnce(openAIResult(validAnalysis))
     const response = await handleImageAnalysis(request(validBody), env, {
       analyze,
       safetyIdentifier: vi.fn().mockResolvedValue("hashed-user"),

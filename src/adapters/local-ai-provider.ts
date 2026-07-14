@@ -1,5 +1,4 @@
 import type {
-  AIProvider,
   AnalyzeImagesInput,
   ChannelInput,
   RewriteInput,
@@ -131,7 +130,7 @@ function naverBody(input: ChannelInput, focus: string, required: string): string
   return body
 }
 
-export class LocalAIProvider implements AIProvider {
+export class LocalAIProvider {
   async analyzeImages(input: AnalyzeImagesInput): Promise<ContentBrief> {
     const cleanedMemo = sanitizeLocalFragment(input.memo, input.avoid)
     const bodyFocus = detectBodyFocus(cleanedMemo)

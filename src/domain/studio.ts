@@ -68,6 +68,15 @@ export interface ChannelResult<T> {
   error: string | null
 }
 
+export interface DraftUsage {
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedKrw: number
+  requestCount: number
+}
+
 export interface StudioDraft {
   id: string
   step: WorkflowStep
@@ -84,6 +93,7 @@ export interface StudioDraft {
   naver: ChannelResult<NaverOutput>
   instagram: ChannelResult<InstagramOutput>
   review: ReviewOutput | null
+  usage: DraftUsage
   createdAt: string
   updatedAt: string
   finalizedAt: string | null
@@ -106,6 +116,14 @@ export function createDraft(now = new Date().toISOString()): StudioDraft {
     naver: { status: "idle", data: null, error: null },
     instagram: { status: "idle", data: null, error: null },
     review: null,
+    usage: {
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedKrw: 0,
+      requestCount: 0,
+    },
     createdAt: now,
     updatedAt: now,
     finalizedAt: null

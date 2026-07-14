@@ -41,6 +41,11 @@ const analysis = {
 function completed(value: unknown): Response {
   return Response.json({
     status: "completed",
+    usage: {
+      input_tokens: 120,
+      output_tokens: 80,
+      input_tokens_details: { cached_tokens: 20 },
+    },
     output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }],
   })
 }
@@ -53,7 +58,10 @@ describe("OpenAI image analysis", () => {
       input,
       { OPENAI_API_KEY: "test-key" },
       { fetcher, safetyIdentifier: "hashed-user" },
-    )).resolves.toEqual(analysis)
+    )).resolves.toEqual({
+      data: analysis,
+      responseUsage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 },
+    })
 
     const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body))
     expect(request).toMatchObject({
