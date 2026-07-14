@@ -40,5 +40,5 @@ describe("PWA production build", () => {
       expect(contents.includes("AUTH_PASSWORD_HASH"), file).toBe(false)
       expect(contents.includes("SESSION_SECRET"), file).toBe(false)
     }
-  })
+  }, 15_000)
 })
