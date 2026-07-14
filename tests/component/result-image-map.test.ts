@@ -4,7 +4,7 @@ import ResultImageMap from "@/features/studio/ResultImageMap.vue"
 import { studioImages } from "../fixtures"
 
 describe("ResultImageMap", () => {
-  it("sorts Naver placements and connects each caption to its thumbnail", () => {
+  it("sorts Naver placements and keeps each caption accessible without showing raw scene text", () => {
     render(ResultImageMap, {
       props: {
         channel: "naver",
@@ -21,7 +21,7 @@ describe("ResultImageMap", () => {
     expect(screen.getByRole("region", { name: "사진과 글 배치" })).toBeTruthy()
     const cards = screen.getAllByRole("listitem")
     expect(cards[0].textContent).toContain("문단 1 뒤")
-    expect(cards[0].textContent).toContain("수련을 시작하는 장면")
+    expect(cards[0].textContent).not.toContain("수련을 시작하는 장면")
     expect(screen.getByRole("img", { name: "수련을 시작하는 장면" }).getAttribute("src")).toBe("blob:photo-1")
     expect(screen.getByRole("img", { name: "수련을 시작하는 장면" }).getAttribute("loading")).toBe("lazy")
   })
@@ -55,6 +55,6 @@ describe("ResultImageMap", () => {
     })
 
     expect(screen.getByText("사진을 불러올 수 없어요")).toBeTruthy()
-    expect(screen.getByText("확인할 사진")).toBeTruthy()
+    expect(screen.queryByText("확인할 사진")).toBeNull()
   })
 })

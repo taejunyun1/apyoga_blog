@@ -49,7 +49,6 @@ const entries = computed(() => {
         <img v-if="entry.image" :src="entry.image.thumbnailUrl" :alt="entry.alt" loading="lazy" />
         <div v-else class="result-image-card__missing">사진을 불러올 수 없어요</div>
         <p class="result-image-card__position">{{ entry.position }}</p>
-        <p v-if="entry.caption" class="result-image-card__caption">{{ entry.caption }}</p>
         <span v-if="entry.isCover" class="result-image-card__cover">대표 사진</span>
       </li>
     </ol>

@@ -163,7 +163,7 @@ describe("studio workflow store", () => {
     store.draft = readyDraft()
     await store.generateAll()
 
-    const rewrite = store.rewrite({ channel: "naver", section: "body", instruction: "사진 설명 늘리기" })
+    const rewrite = store.rewrite({ channel: "naver", section: "body", instruction: "사진 분위기 더하기" })
     await rewriteStarted.promise
     const edit = store.editResult({ channel: "naver", section: "body", text: laterUserBody })
     releaseRewrite.resolve()
@@ -793,7 +793,7 @@ describe("studio workflow store", () => {
     expect(store.draft.review?.medicalClaims.length).toBeGreaterThan(0)
   })
 
-  it.each(["철학 줄이기", "사진 설명 늘리기"])("keeps the prior Naver body when the %s rewrite is shorter than 500 characters", async (instruction) => {
+  it.each(["철학 줄이기", "사진 분위기 더하기"])("keeps the prior Naver body when the %s rewrite is shorter than 500 characters", async (instruction) => {
     const repository = new InMemoryRepository()
     class ShortRewriteProvider extends LocalAIProvider {
       override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {

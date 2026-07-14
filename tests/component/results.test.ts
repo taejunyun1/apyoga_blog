@@ -199,6 +199,7 @@ describe("ResultEditor", () => {
 
     const naverMap = screen.getByRole("region", { name: "사진과 글 배치" })
     expect(naverMap.querySelectorAll("li")[0].textContent).toContain("문단 1 뒤")
+    expect(naverMap.textContent).not.toContain("수련을 여는 장면")
     expect(screen.getByRole("img", { name: "수련을 여는 장면" }).getAttribute("src")).toBe("blob:photo-1")
 
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
@@ -217,12 +218,12 @@ describe("ResultEditor", () => {
         images,
         review,
         copyFallback: null,
-        pendingRewriteKey: "naver:body:사진 설명 늘리기",
+        pendingRewriteKey: "naver:body:사진 분위기 더하기",
         rewritePreviews: {}
       }
     })
 
-    const activeRequest = screen.getByRole("button", { name: "사진 설명 늘리기 변경 중…" })
+    const activeRequest = screen.getByRole("button", { name: "사진 분위기 더하기 변경 중…" })
     expect((activeRequest as HTMLButtonElement).disabled).toBe(true)
     expect(activeRequest.getAttribute("aria-busy")).toBe("true")
     expect((screen.getByRole("button", { name: "도입부 감성 줄이기" }) as HTMLButtonElement).disabled).toBe(true)
@@ -276,7 +277,7 @@ describe("ResultEditor", () => {
   })
 
   it("disables only result mutations in both channels while a rewrite is pending", async () => {
-    const pendingRewriteKey = "naver:body:사진 설명 늘리기"
+    const pendingRewriteKey = "naver:body:사진 분위기 더하기"
     const view = render(ResultEditor, {
       props: {
         naver,

@@ -4,7 +4,7 @@ import { rewriteActionKey, rewriteActions, rewriteFeedbackFor } from "@/features
 const expectedFeedback = [
   [{ channel: "naver", section: "intro", instruction: "감성 줄이기" }, { preview: "도입부", toast: "도입부의 감성을 줄였어요" }],
   [{ channel: "naver", section: "body", instruction: "철학 줄이기" }, { preview: "네이버 본문", toast: "본문의 철학적 표현을 줄였어요" }],
-  [{ channel: "naver", section: "body", instruction: "사진 설명 늘리기" }, { preview: "네이버 본문", toast: "사진 설명을 보강했어요" }],
+  [{ channel: "naver", section: "body", instruction: "사진 분위기 더하기" }, { preview: "네이버 본문", toast: "사진의 분위기를 보강했어요" }],
   [{ channel: "naver", section: "title", instruction: "최근 글과 다르게" }, { preview: "새 제목", toast: "새 제목을 만들었어요" }],
   [{ channel: "instagram", section: "hook", instruction: "첫 문장만 변경" }, { preview: "첫 문장", toast: "첫 문장을 변경했어요" }],
   [{ channel: "instagram", section: "short", instruction: "더 짧게" }, { preview: "짧은 캡션", toast: "캡션을 더 짧게 만들었어요" }],

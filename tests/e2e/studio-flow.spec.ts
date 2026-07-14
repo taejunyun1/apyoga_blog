@@ -94,11 +94,11 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   for (const card of await naverImageCards.all()) {
     await expect(card.locator("img")).toHaveCount(1)
     await expect(card.locator(".result-image-card__position")).toHaveText(/문단 \d+ 뒤/)
-    await expect(card.locator(".result-image-card__caption")).not.toHaveText("")
+    await expect(card.locator(".result-image-card__caption")).toHaveCount(0)
   }
 
-  await page.getByRole("button", { name: "사진 설명 늘리기" }).click()
-  await expect(page.getByText("사진 설명을 보강했어요")).toBeVisible()
+  await page.getByRole("button", { name: "사진 분위기 더하기" }).click()
+  await expect(page.getByText("사진의 분위기를 보강했어요")).toBeVisible()
   await expect(page.getByText("최근 변경 · 네이버 본문")).toBeVisible()
   await expect(page.getByLabel("본문 편집")).toHaveValue(persistedBody)
   const bodyPreview = page.locator(".rewrite-preview p")
