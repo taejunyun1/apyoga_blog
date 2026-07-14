@@ -192,6 +192,9 @@ export function validateRewriteContent(value: unknown, input: RewriteContentInpu
   if (forbiddenExpressions(input.avoid).some((expression) => text.includes(expression)) || hasMedicalClaim(text)) {
     throw new OpenAIContentError("금지 표현이 재작성 문구에 포함되었어요.", true)
   }
+  if (hasPhotoNarration(text)) {
+    throw new OpenAIContentError("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.", true)
+  }
   return { section: input.section, text }
 }
 
@@ -261,9 +264,13 @@ function validateEmotionalPhotoCopy(
   const text = channel === "naver"
     ? (content as GeneratedNaver).body
     : (content as GeneratedInstagram).captionLong
-  if (PHOTO_REPORT_PATTERN.test(text) || PHOTO_META_NARRATION_PATTERN.test(text)) {
+  if (hasPhotoNarration(text)) {
     throw new OpenAIContentError("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.", true)
   }
+}
+
+function hasPhotoNarration(text: string): boolean {
+  return PHOTO_REPORT_PATTERN.test(text) || PHOTO_META_NARRATION_PATTERN.test(text)
 }
 
 function photoWords(value: string): string[] {

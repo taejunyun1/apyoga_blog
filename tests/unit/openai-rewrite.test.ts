@@ -55,6 +55,17 @@ describe("OpenAI rewrite content", () => {
     })).toThrow("500자")
   })
 
+  it("rejects a rewritten body that directly narrates the photo", () => {
+    const text = `${"호흡과 따뜻한 빛의 여운을 차분히 이어갑니다. ".repeat(25)} 사진 속 발과 하반신이 보입니다.`
+
+    expect(() => validateRewriteContent({ section: "body", text }, {
+      ...input,
+      section: "body",
+      instruction: "사진 분위기 더하기",
+      currentText: "기존 본문 ".repeat(80),
+    })).toThrow("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.")
+  })
+
   it("requires every rewritten hashtag token to start with #", () => {
     expect(() => validateRewriteContent({ section: "hashtags", text: "#요가 잘못된태그" }, {
       ...input,
