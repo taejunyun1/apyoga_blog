@@ -2,7 +2,9 @@
 import { ref } from "vue"
 import type { Tone, WritingMode } from "@/domain/studio"
 
-const props = defineProps<{ memo: string; mustInclude: string; avoid: string; writingMode: WritingMode; naverTone: Tone; instagramTone: Tone }>()
+const props = withDefaults(defineProps<{ memo: string; mustInclude: string; avoid: string; writingMode: WritingMode; naverTone: Tone; instagramTone: Tone; busy?: boolean }>(), {
+  busy: false,
+})
 const emit = defineEmits<{ submit: [value: { memo: string; mustInclude: string; avoid: string; writingMode: WritingMode; naverTone: Tone; instagramTone: Tone }] }>()
 const memo = ref(props.memo)
 const mustInclude = ref(props.mustInclude)
@@ -22,6 +24,7 @@ const tones: Array<{ value: Tone; label: string }> = [
 ]
 
 function submit() {
+  if (props.busy) return
   emit("submit", { memo: memo.value.trim(), mustInclude: mustInclude.value.trim(), avoid: avoid.value.trim(), writingMode: writingMode.value, naverTone: naverTone.value, instagramTone: instagramTone.value })
 }
 </script>
@@ -39,6 +42,8 @@ function submit() {
       <label class="field-label">네이버 톤<select v-model="naverTone"><option v-for="tone in tones" :key="tone.value" :value="tone.value">{{ tone.label }}</option></select></label>
       <label class="field-label">인스타그램 톤<select v-model="instagramTone"><option v-for="tone in tones" :key="tone.value" :value="tone.value">{{ tone.label }}</option></select></label>
     </div>
-    <button class="primary-action" type="submit" :disabled="memo.trim().length === 0">AI 이해 내용 만들기</button>
+    <button class="primary-action" type="submit" :disabled="busy || memo.trim().length === 0">
+      {{ busy ? '사진과 메모 분석 중…' : 'AI 이해 내용 만들기' }}
+    </button>
   </form>
 </template>

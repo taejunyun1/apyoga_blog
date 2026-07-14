@@ -42,11 +42,23 @@ onUnmounted(() => {
   if (toastTimer) clearTimeout(toastTimer)
 })
 
-function showToast(message: string) {
+function clearToast() {
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
+  toastMessage.value = null
+}
+
+function showToast(message: string, options: { persistent?: boolean } = {}) {
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
   toastMessage.value = message
   toastId.value += 1
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastMessage.value = null }, 2400)
+  if (!options.persistent) {
+    toastTimer = setTimeout(() => {
+      toastMessage.value = null
+      toastTimer = null
+    }, 2400)
+  }
 }
 
 async function run(action: () => Promise<unknown>, successMessage?: string) {
@@ -72,8 +84,12 @@ async function finishCurrentStep() {
 }
 
 async function submitMemo(value: Parameters<typeof store.updateMemo>[0]) {
+  if (store.busy) return
   store.updateMemo(value)
-  await run(() => store.analyze())
+  showToast("사진과 메모를 분석하고 있어요…", { persistent: true })
+  const completed = await run(() => store.analyze())
+  if (completed) showToast("사진 분석이 완료됐어요")
+  else clearToast()
 }
 
 async function generateChannels() {
@@ -188,6 +204,7 @@ async function finalizeResult() {
         :writing-mode="store.draft.writingMode"
         :naver-tone="store.draft.naverTone"
         :instagram-tone="store.draft.instagramTone"
+        :busy="store.busy"
         @submit="submitMemo"
       />
 

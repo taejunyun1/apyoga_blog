@@ -16,4 +16,23 @@ describe("MemoToneForm", () => {
 
     expect(emitted().submit).toHaveLength(1)
   })
+
+  it("announces analysis and blocks duplicate submissions while busy", async () => {
+    const { emitted } = render(MemoToneForm, {
+      props: {
+        memo: "호흡과 어깨를 살핀 저녁 수련",
+        mustInclude: "",
+        avoid: "",
+        writingMode: "auto",
+        naverTone: "plain",
+        instagramTone: "emotional",
+        busy: true,
+      }
+    })
+
+    const button = screen.getByRole("button", { name: "사진과 메모 분석 중…" }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    await fireEvent.submit(button.closest("form") as HTMLFormElement)
+    expect(emitted().submit).toBeUndefined()
+  })
 })

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import StudioView from "@/views/StudioView.vue"
 import { createDraft } from "@/domain/studio"
+import type { AnalyzeImagesInput } from "@/domain/ports"
 import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
 import { studioImages } from "../fixtures"
 import { InMemoryRepository } from "../helpers/in-memory-repository"
@@ -24,6 +25,7 @@ class ControlledRewriteProvider extends LocalAIProvider {
   rewriteCalls = 0
   instagramGenerationCalls = 0
   private rewriteGate: ReturnType<typeof deferred<void>> | null = null
+  private analysisGate: ReturnType<typeof deferred<void>> | null = null
 
   holdNextRewrite() {
     const gate = this.holdNextRewriteGate()
@@ -34,6 +36,19 @@ class ControlledRewriteProvider extends LocalAIProvider {
     const gate = deferred<void>()
     this.rewriteGate = gate
     return gate
+  }
+
+  holdNextAnalysisGate() {
+    const gate = deferred<void>()
+    this.analysisGate = gate
+    return gate
+  }
+
+  override async analyzeImages(input: AnalyzeImagesInput) {
+    const gate = this.analysisGate
+    this.analysisGate = null
+    if (gate) await gate.promise
+    return super.analyzeImages(input)
   }
 
   override async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
@@ -63,6 +78,30 @@ class ToggleFailRepository extends InMemoryRepository {
 }
 
 afterEach(() => resetStudioServices())
+
+async function renderMemoStep() {
+  const repository = new InMemoryRepository()
+  const ai = new ControlledRewriteProvider()
+  configureStudioServices({
+    repository,
+    ai,
+    prepareAnalysisImage: async () => "data:image/jpeg;base64,cGhvdG8="
+  })
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useStudioStore()
+  const draft = createDraft()
+  draft.step = "memo"
+  draft.images = studioImages(1)
+  store.draft = draft
+  repository.drafts.set(draft.id, draft)
+  repository.images.set(draft.images[0].editedBlobId, new Blob(["photo pixels"], { type: "image/jpeg" }))
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/studio/:draftId", component: StudioView }] })
+  await router.push(`/studio/${draft.id}`)
+  await router.isReady()
+  render(StudioView, { global: { plugins: [pinia, router] } })
+  return { ai, store }
+}
 
 async function renderReadyResults(options: { instagramError?: boolean } = {}) {
   const repository = new InMemoryRepository()
@@ -97,6 +136,38 @@ async function renderReadyResults(options: { instagramError?: boolean } = {}) {
 }
 
 describe("studio generation flow", () => {
+  it("keeps the analysis toast visible until photo and memo analysis succeeds", async () => {
+    const { ai } = await renderMemoStep()
+    const gate = ai.holdNextAnalysisGate()
+
+    await fireEvent.update(screen.getByLabelText("오늘의 수련 메모"), "어깨와 흉곽을 천천히 열어간 차분한 저녁 수련")
+    await fireEvent.click(screen.getByRole("button", { name: "AI 이해 내용 만들기" }))
+
+    await waitFor(() => expect(screen.getByText("사진과 메모를 분석하고 있어요…")).toBeTruthy())
+    const busyButton = screen.getByRole("button", { name: "사진과 메모 분석 중…" }) as HTMLButtonElement
+    expect(busyButton.disabled).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    expect(screen.getByText("사진과 메모를 분석하고 있어요…")).toBeTruthy()
+
+    gate.resolve()
+    await waitFor(() => expect(screen.getByText("AI가 이해한 오늘의 수련")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("사진 분석이 완료됐어요")).toBeTruthy())
+  })
+
+  it("clears the analysis toast and preserves the error when analysis fails", async () => {
+    const { ai } = await renderMemoStep()
+    const gate = ai.holdNextAnalysisGate()
+
+    await fireEvent.update(screen.getByLabelText("오늘의 수련 메모"), "호흡과 어깨를 살핀 저녁 수련")
+    await fireEvent.click(screen.getByRole("button", { name: "AI 이해 내용 만들기" }))
+    await waitFor(() => expect(screen.getByText("사진과 메모를 분석하고 있어요…")).toBeTruthy())
+
+    gate.reject(new Error("사진 분석 실패"))
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("사진 분석 실패"))
+    expect(screen.queryByText("사진과 메모를 분석하고 있어요…")).toBeNull()
+    expect(screen.queryByText("사진 분석이 완료됐어요")).toBeNull()
+  })
+
   it("blocks unsubmitted result input until a delayed rewrite succeeds", async () => {
     const { ai, store } = await renderReadyResults()
     const user = userEvent.setup()
