@@ -5,6 +5,8 @@ const fixturePhoto = path.resolve("public/icons/app-icon-512.png")
 const rewrittenIntro = "호흡과 감각을 담아 새롭게 바꾼 문구"
 const rewrittenBody = "호흡과 사진 속 수련 장면을 구체적으로 살핀 새 본문입니다. ".repeat(18)
 const persistedBody = rewrittenBody.trim()
+const rewrittenTitle = "고요한 공간에서 이어진 저녁의 호흡"
+const rewrittenTitleBody = "수련이 끝난 뒤에도 호흡의 리듬은 천천히 마음에 남습니다. 오늘은 무리하게 더 나아가기보다, 지금의 몸을 있는 그대로 받아들이며 작은 여백을 만들었습니다. 들이쉬는 숨마다 어깨와 가슴 주변의 긴장이 조금씩 누그러지고, 내쉬는 숨마다 하루 동안 쌓인 생각도 조용히 자리를 찾습니다. 각자의 속도는 달라도 같은 시간 안에서 서로의 호흡을 존중하며 머무는 순간이 참 든든했습니다. 매트 위에서 보낸 이 시간이 바쁜 일상으로 돌아가는 길에도 다정한 중심이 되어 주기를 바랍니다. 다음 수련에서도 나에게 필요한 만큼 쉬고, 필요한 만큼 움직이며, 몸과 마음의 이야기를 차분히 들어보려 합니다. ".repeat(4).trim()
 
 async function mockImageAnalysis(page: Page) {
   await page.route("**/api/content/analyze-images", async (route) => {
@@ -133,7 +135,16 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   await mockImageAnalysis(page)
   await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
   await page.route("**/api/content/rewrite", async (route) => {
-    const request = route.request().postDataJSON() as { section: string }
+    const request = route.request().postDataJSON() as { kind?: string; section?: string }
+    if (request.kind === "naver-title-body") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ source: "openai", data: { title: rewrittenTitle, body: rewrittenTitleBody } })
+      })
+      return
+    }
+
     const text = request.section === "body" ? rewrittenBody : rewrittenIntro
     await route.fulfill({
       status: 200,
@@ -203,6 +214,14 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   await expect(bodyPreview).toHaveCSS("-webkit-line-clamp", "4")
   expect(await bodyPreview.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
 
+  await page.getByRole("button", { name: "최근 글과 다르게" }).click()
+  await expect(page.getByText("제목과 본문을 새롭게 만들었어요")).toBeVisible()
+  await expect(page.getByText("최근 변경 · 새 제목과 본문")).toBeVisible()
+  await expect(page.getByRole("radio", { name: rewrittenTitle })).toBeChecked()
+  await expect(page.getByLabel("본문 편집")).toHaveValue(rewrittenTitleBody)
+  await expect(page.locator(".rewrite-preview__title")).toHaveText(rewrittenTitle)
+  await expect(page.locator(".rewrite-preview__body")).toContainText("수련이 끝난 뒤에도 호흡의 리듬은")
+
   await page.getByRole("tab", { name: "인스타그램" }).click()
   await expect(page.getByText("인스타그램 글이 준비됐어요")).toBeVisible()
   await expect(page.getByText("인스타그램 결과를 열었어요")).toBeVisible()
@@ -244,7 +263,13 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   expect(horizontalOverflow).toBe(false)
 
   await page.screenshot({ path: testInfo.outputPath("completed-flow.png"), fullPage: true })
+  await page.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole("status")).toHaveText("작성 이력에 저장했어요")
+  await expect(page.getByRole("heading", { name: "최근 작성 기록" })).toBeVisible()
+  await expect(page.getByText(rewrittenTitle)).toBeVisible()
+
   await page.reload()
-  await expect(page.getByText("작성 중인 글을 복원했어요")).toBeVisible()
-  await expect(page.getByRole("tab", { name: "네이버 블로그" })).toBeVisible()
+  await expect(page.getByText("작성 이력에 저장했어요")).toHaveCount(0)
+  await expect(page.getByText(rewrittenTitle)).toBeVisible()
 })

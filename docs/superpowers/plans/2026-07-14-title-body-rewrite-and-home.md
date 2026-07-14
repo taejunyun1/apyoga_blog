@@ -705,7 +705,7 @@ git commit -m "2026-07-14 작성 이력 저장 후 메인 이동 추가"
 - Verifies: real UI changes both title and body, finalization creates visible home history, and the home toast appears once.
 - Produces: a passing production build and a Cloudflare Pages deployment URL.
 
-- [ ] **Step 1: Add the browser regression**
+- [x] **Step 1: Add the browser regression**
 
 Extend the authenticated/local fixture flow in `tests/e2e/studio-flow.spec.ts`:
 
@@ -726,7 +726,7 @@ await expect(page.getByRole("heading", { name: "최근 작성 기록" })).toBeVi
 
 Reload after the toast query is removed and assert `작성 이력에 저장했어요` is no longer visible.
 
-- [ ] **Step 2: Run the complete automated verification**
+- [x] **Step 2: Run the complete automated verification**
 
 Run:
 
@@ -740,7 +740,7 @@ npm run test:e2e
 
 Expected: both type checks succeed, every Vitest test passes, the Vite production build succeeds, and every Playwright test passes.
 
-- [ ] **Step 3: Inspect the final diff for scope and secrets**
+- [x] **Step 3: Inspect the final diff for scope and secrets**
 
 Run:
 

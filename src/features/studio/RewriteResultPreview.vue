@@ -11,6 +11,6 @@ defineProps<{ preview: RewritePreview }>()
       <p class="rewrite-preview__title">{{ preview.title }}</p>
       <p class="rewrite-preview__body">{{ preview.body }}</p>
     </template>
-    <p v-else>{{ preview.text }}</p>
+    <p v-else class="rewrite-preview__body">{{ preview.text }}</p>
   </aside>
 </template>
