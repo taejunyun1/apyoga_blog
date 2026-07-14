@@ -69,18 +69,28 @@ function safeImageDescriptions(input: ChannelInput): Array<{ imageId: string; de
     .filter(({ description }) => description.length >= 4 && isSafePublishableCopy([description], input.avoid))
 }
 
+function emotionalVisualParagraphs(input: ChannelInput): string[] {
+  const mood = sanitizeLocalFragment(input.brief.overallMood, input.avoid) || "차분한"
+  return safeImageDescriptions(input).map(({ description }, index) => {
+    const detail = description
+      .replace(/^\s*(?:\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째\s*(?:사진|수련)?\s*/u, "")
+      .trim()
+    return index % 2 === 0
+      ? `${detail}에서 느껴지는 빛과 색의 결이 ${mood} 호흡과 어우러져 오늘 수련의 여운을 부드럽게 남겼습니다.`
+      : `${detail}의 공간감은 서두르지 않는 움직임과 이어져, 몸과 마음이 천천히 제자리로 돌아오는 여운을 전해 주었습니다.`
+  })
+}
+
 function naverBody(input: ChannelInput, focus: string, required: string): string {
   const memo = sanitizeLocalFragment(input.memo, input.avoid)
     || safeAlternative(["오늘의 수련을 차분히 돌아보았습니다.", "함께한 움직임을 천천히 기록했습니다."], input.avoid)
-  const visualParagraphs = safeImageDescriptions(input).map(
-    ({ description }, index) => `${index + 1}번째 사진에는 ${description}이 담겼고, 그 장면에서 확인되는 구체적인 배치와 공간의 특징을 따라 수련의 흐름을 기록했습니다.`,
-  )
+  const visualParagraphs = emotionalVisualParagraphs(input)
   const paragraphs = [
     `오늘은 ${focus}에 천천히 주의를 기울이며 수련을 시작했습니다. ${required}을 따라 서두르지 않고 몸과 마음이 현재에 도착할 시간을 충분히 두었습니다.`,
     `${memo}라는 기록을 바탕으로 각 동작의 크기보다 움직임이 이어지는 과정과 그 사이의 여백을 살펴보았습니다.`,
     ...visualParagraphs,
     `숨을 들이쉴 때와 내쉴 때 달라지는 감각을 관찰하며 ${focus} 주변의 긴장을 억지로 밀어내지 않고 각자의 편안한 범위 안에서 움직였습니다.`,
-    "사진에 담긴 장면마다 공간의 구조와 빛, 소도구의 색과 배치가 다르게 보였습니다. 실제로 확인되는 요소만 따라가며 수련 공간의 흐름을 차분히 기록했습니다.",
+    "공간에 번진 빛과 소도구의 색은 호흡의 속도와 자연스럽게 어우러졌습니다. 눈에 머문 작은 결을 따라가니 수련 뒤의 고요도 한층 오래 이어졌습니다.",
     "수련이 깊어질수록 큰 변화보다 작고 분명한 신호를 알아차리는 일이 중요하다는 것을 다시 확인했습니다. 잠시 쉬는 선택도 오늘의 몸에 맞는 좋은 움직임이 될 수 있습니다.",
     "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요.",
     `호흡의 길이를 일부러 바꾸기보다 자연스럽게 이어지는 흐름을 지켜보았습니다. 들숨과 날숨 사이에 생기는 작은 쉼도 수련의 일부로 받아들였습니다.`,
@@ -193,11 +203,9 @@ export class LocalAIProvider implements AIProvider {
     const focuses = safeFocuses(input)
     const focus = focuses.join("과 ")
     const required = requiredPhrase(input)
-    const photoRecord = safeImageDescriptions(input)
-      .map(({ description }, index) => `${index + 1}번째 사진에는 ${description}이 담겼습니다.`)
-      .join(" ")
+    const visualMood = emotionalVisualParagraphs(input).join(" ")
     const captionLong = sanitizeLocalFragment(
-      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${photoRecord}\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
+      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${visualMood}\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
       input.avoid
     )
     const captionShort = sanitizeLocalFragment(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
@@ -232,10 +240,10 @@ export class LocalAIProvider implements AIProvider {
       if (!isSafePublishableCopy([current], input.avoid)) {
         throw new Error("금지 표현 또는 의료적 단정이 있는 본문은 안전하게 재작성할 수 없어요.")
       }
-      const rawAdditions = input.instruction.includes("사진 설명")
+      const rawAdditions = input.instruction.includes("사진 분위기")
         ? [
-            "각 사진에서 실제로 확인되는 공간의 구조와 빛, 소도구의 색과 배치를 중심으로 장면의 차이를 다시 살폈습니다.",
-            "사진별 설명에 적힌 시각 요소만 따라가며, 보이지 않는 인물이나 동작을 덧붙이지 않고 수련 공간의 흐름을 구체적으로 기록했습니다."
+            "공간에 스민 빛과 소도구의 색이 호흡의 리듬과 어우러지며, 수련이 끝난 뒤에도 잔잔한 여운을 남겼습니다.",
+            "눈에 머문 색감과 바닥의 결을 따라 오늘의 움직임을 돌아보니, 고요한 순간이 일상으로 천천히 이어지는 듯했습니다."
           ]
         : [
             "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다.",

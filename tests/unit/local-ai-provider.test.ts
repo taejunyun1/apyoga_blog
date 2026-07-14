@@ -31,7 +31,7 @@ describe("LocalAIProvider", () => {
     expect(instagram.hashtags.length).toBeGreaterThanOrEqual(5)
   })
 
-  it("grounds both local fallback channels in the concrete photo descriptions", async () => {
+  it("weaves concrete photo details into emotional local fallback copy without scene enumeration", async () => {
     const provider = new LocalAIProvider()
     const analyzed = await provider.analyzeImages(analyzeInput)
     const brief = {
@@ -46,11 +46,16 @@ describe("LocalAIProvider", () => {
       provider.generateInstagram({ ...analyzeInput, brief }),
     ])
 
-    expect(naver.body).toContain("큰 창으로 햇살")
+    expect(naver.body).toContain("햇살")
+    expect(naver.body).toContain("나무 바닥")
+    expect(naver.body).toContain("여운")
+    expect(naver.body).not.toMatch(/(?:\d+번째|첫 번째)\s*사진/u)
     expect(naver.imagePlacements[0].caption).toContain("큰 창으로 햇살")
     expect(naver.imagePlacements[1].caption).toContain("나무 바닥")
-    expect(instagram.captionLong).toContain("큰 창으로 햇살")
+    expect(instagram.captionLong).toContain("햇살")
     expect(instagram.captionLong).toContain("나무 바닥")
+    expect(instagram.captionLong).toContain("여운")
+    expect(instagram.captionLong).not.toMatch(/(?:\d+번째|첫 번째)\s*사진/u)
   })
 
   it("keeps the local Naver fallback at 500 characters after filtering", async () => {
@@ -240,7 +245,7 @@ describe("LocalAIProvider", () => {
     expect(rewritten.text.split(/\s+/).every((value) => value.startsWith("#"))).toBe(true)
   })
 
-  it.each(["철학 줄이기", "사진 설명 늘리기"])("preserves a complete Naver body for the %s rewrite", async (instruction) => {
+  it.each(["철학 줄이기", "사진 분위기 더하기"])("preserves a complete Naver body for the %s rewrite", async (instruction) => {
     const provider = new LocalAIProvider()
     const brief = await provider.analyzeImages(analyzeInput)
     const naver = await provider.generateNaver({ ...analyzeInput, brief })
@@ -277,7 +282,7 @@ describe("LocalAIProvider", () => {
       channel: "naver",
       section: "body",
       currentText: naver.body,
-      instruction: "사진 설명 늘리기",
+      instruction: "사진 분위기 더하기",
       memo: analyzeInput.memo,
       avoid: analyzeInput.avoid,
       tone: "plain",
@@ -287,6 +292,7 @@ describe("LocalAIProvider", () => {
     expect(rewritten.text).not.toContain("손의 위치")
     expect(rewritten.text).not.toContain("발의 간격")
     expect(rewritten.text).not.toContain("손발이 바닥")
+    expect(rewritten.text).toContain("여운")
   })
 
   it("stops a repeated body rewrite instead of reversing the whole article", async () => {
@@ -296,7 +302,7 @@ describe("LocalAIProvider", () => {
     const request = {
       channel: "naver" as const,
       section: "body",
-      instruction: "사진 설명 늘리기",
+      instruction: "사진 분위기 더하기",
       memo: analyzeInput.memo,
       avoid: analyzeInput.avoid,
       tone: "plain" as const
@@ -318,7 +324,7 @@ describe("LocalAIProvider", () => {
       channel: "naver",
       section: "body",
       currentText: naver.body,
-      instruction: "사진 설명 늘리기",
+      instruction: "사진 분위기 더하기",
       memo: input.memo,
       avoid: input.avoid,
       tone: "plain",
