@@ -29,10 +29,26 @@ export interface RewriteOutput {
   text: string
 }
 
+export interface RewriteNaverTitleAndBodyInput {
+  currentTitle: string
+  currentBody: string
+  instruction: string
+  memo: string
+  photoContext: string
+  avoid: string
+  tone: Tone
+}
+
+export interface RewriteNaverTitleAndBodyOutput {
+  title: string
+  body: string
+}
+
 export interface AIProvider {
   analyzeImages(input: AnalyzeImagesInput): Promise<ContentBrief>
   generateNaver(input: ChannelInput): Promise<NaverOutput>
   generateInstagram(input: ChannelInput): Promise<InstagramOutput>
   rewriteSection(input: RewriteInput): Promise<RewriteOutput>
+  rewriteNaverTitleAndBody(input: RewriteNaverTitleAndBodyInput): Promise<RewriteNaverTitleAndBodyOutput>
   review(input: { text: string }): Promise<ReviewOutput>
 }

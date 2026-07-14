@@ -209,6 +209,26 @@ describe("LocalAIProvider", () => {
     expect(rewritten.text).not.toContain("사진")
   })
 
+  it("rewrites a Naver title and 500-character body together", async () => {
+    const provider = new LocalAIProvider()
+    const input = {
+      currentTitle: "호흡으로 돌아본 일요일 수련",
+      currentBody: "기존 호흡 기록을 차분하게 이어 갑니다. ".repeat(60),
+      instruction: "최근 글과 다르게",
+      memo: analyzeInput.memo,
+      photoContext: "전체 분위기: 따뜻하고 고요함\n사진 설명: 우드 바닥과 싱잉볼이 만든 차분한 결",
+      avoid: analyzeInput.avoid,
+      tone: "emotional" as const,
+    }
+
+    const rewritten = await provider.rewriteNaverTitleAndBody(input)
+
+    expect(rewritten.title).not.toBe(input.currentTitle)
+    expect(rewritten.body).not.toBe(input.currentBody)
+    expect(rewritten.body.trim().length).toBeGreaterThanOrEqual(500)
+    expect(rewritten.body).not.toMatch(/(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로)/u)
+  })
+
   it("returns a visibly different sentence on repeated option rewrites", async () => {
     const provider = new LocalAIProvider()
     const request = {

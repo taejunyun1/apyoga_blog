@@ -38,6 +38,21 @@ const rewriteInput = {
   tone: "plain" as const,
 }
 
+const titleBodyRewriteInput = {
+  currentTitle: "호흡으로 돌아본 일요일 수련",
+  currentBody: "기존 호흡 기록을 차분하게 이어 갑니다. ".repeat(60),
+  instruction: "최근 글과 다르게",
+  memo: "어깨와 흉곽을 살핀 수련",
+  photoContext: "전체 분위기: 따뜻하고 고요함\n사진 설명: 우드 바닥과 싱잉볼이 만든 차분한 결",
+  avoid: "치료, 완치",
+  tone: "emotional" as const,
+}
+
+const remoteTitleBodyRewrite = {
+  title: "고요한 공간에서 이어진 일요일의 호흡",
+  body: "공간의 결을 감각과 여운으로 풀어낸 새로운 네이버 본문입니다. ".repeat(60),
+}
+
 function validNaver() {
   return {
     titles: ["천천히 여는 저녁", "몸의 감각을 듣는 시간", "차분하게 이어 간 수련"],
@@ -61,6 +76,43 @@ function validInstagram() {
 }
 
 describe("OpenAIProvider", () => {
+  it("posts one structured request and returns a paired Naver title and body rewrite", async () => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteNaverTitleAndBody")
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      source: "openai",
+      data: remoteTitleBodyRewrite,
+    }))
+    const provider = new OpenAIProvider({ fetcher, local })
+
+    await expect(provider.rewriteNaverTitleAndBody(titleBodyRewriteInput)).resolves.toEqual({
+      title: remoteTitleBodyRewrite.title,
+      body: remoteTitleBodyRewrite.body.trim(),
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(fetcher.mock.calls[0][0]).toBe("/api/content/rewrite")
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      kind: "naver-title-body",
+      ...titleBodyRewriteInput,
+    })
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["a network error", () => Promise.reject(new TypeError("offline"))],
+    ["a malformed response", () => Promise.resolve(Response.json({ source: "openai", data: { title: "새 제목" } }))],
+  ])("uses the local title-body rewrite for %s", async (_label, fetchResult) => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "rewriteNaverTitleAndBody")
+    const provider = new OpenAIProvider({ fetcher: vi.fn<typeof fetch>().mockImplementation(fetchResult), local })
+
+    const result = await provider.rewriteNaverTitleAndBody(titleBodyRewriteInput)
+
+    expect(result.title).not.toBe(titleBodyRewriteInput.currentTitle)
+    expect(result.body).not.toBe(titleBodyRewriteInput.currentBody)
+    expect(fallback).toHaveBeenCalledWith(titleBodyRewriteInput)
+  })
+
   it("sends analysis-only image data to the remote vision endpoint", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ source: "openai", data: analysisBrief }))
     const local = new LocalAIProvider()

@@ -241,7 +241,7 @@ git commit -m "2026-07-14 네이버 제목 본문 묶음 재작성 API 추가"
 - Produces: `AIProvider.rewriteNaverTitleAndBody(input)`.
 - Guarantees: remote success returns one validated pair; transport, 5xx, or malformed output returns one local pair; 401/403 redirects to login.
 
-- [ ] **Step 1: Write failing local and remote provider tests**
+- [x] **Step 1: Write failing local and remote provider tests**
 
 Add tests proving the local pair differs and stays valid:
 
@@ -283,13 +283,13 @@ it.each(["network", "server", "malformed"])("uses the local pair for %s failure"
 })
 ```
 
-- [ ] **Step 2: Run provider tests and verify RED**
+- [x] **Step 2: Run provider tests and verify RED**
 
 Run: `npm test -- --run tests/unit/local-ai-provider.test.ts tests/unit/openai-provider.test.ts`
 
 Expected: FAIL because the client types and provider methods do not exist.
 
-- [ ] **Step 3: Add the client port and local paired implementation**
+- [x] **Step 3: Add the client port and local paired implementation**
 
 Add to `src/domain/ports.ts`:
 
@@ -321,7 +321,7 @@ export interface AIProvider {
 
 Implement the local method by obtaining a different safe title from the existing title candidate logic and obtaining a safe 500+ character body through the existing body rewrite path with `instruction: "사진 분위기 더하기"` and `memo: `${input.memo}\n${input.photoContext}``. Validate both values before returning. Do not mutate `input`.
 
-- [ ] **Step 4: Add remote request, parsing, and fallback**
+- [x] **Step 4: Add remote request, parsing, and fallback**
 
 In `src/adapters/openai-provider.ts`, post this exact payload shape:
 
@@ -340,13 +340,13 @@ In `src/adapters/openai-provider.ts`, post this exact payload shape:
 
 Parse only `{ source: "openai", data: { title, body } }` with exact keys. Require trimmed non-empty text, both values different from their inputs, body length at least 500, and `isSafePublishableCopy([title, body], input.avoid)`. On transport failure, non-auth non-OK status, or invalid data, call `local.rewriteNaverTitleAndBody(input)`. Preserve the existing login redirect behavior for 401/403.
 
-- [ ] **Step 5: Run provider tests and verify GREEN**
+- [x] **Step 5: Run provider tests and verify GREEN**
 
 Run: `npm test -- --run tests/unit/local-ai-provider.test.ts tests/unit/openai-provider.test.ts`
 
 Expected: all client provider tests pass.
 
-- [ ] **Step 6: Commit the client providers**
+- [x] **Step 6: Commit the client providers**
 
 ```bash
 git add src/domain/ports.ts src/adapters/local-ai-provider.ts src/adapters/openai-provider.ts tests/unit/local-ai-provider.test.ts tests/unit/openai-provider.test.ts

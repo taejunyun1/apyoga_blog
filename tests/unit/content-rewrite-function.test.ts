@@ -58,9 +58,13 @@ function requestFor(input: unknown, headers: HeadersInit = {}): Request {
 function dependencies(rewrite = vi.fn().mockResolvedValue({
   section: "intro",
   text: "호흡을 살피며 시작했습니다.",
+}), rewriteTitleAndBody = vi.fn().mockResolvedValue({
+  title: "새 제목",
+  body: "새 본문 ".repeat(100),
 })) {
   return {
     rewrite,
+    rewriteTitleAndBody,
     safetyIdentifier: vi.fn().mockResolvedValue("hashed-user"),
   }
 }

@@ -1,6 +1,14 @@
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import { isSafePublishableCopy } from "@/domain/content-safety"
-import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
+import type {
+  AIProvider,
+  AnalyzeImagesInput,
+  ChannelInput,
+  RewriteInput,
+  RewriteNaverTitleAndBodyInput,
+  RewriteNaverTitleAndBodyOutput,
+  RewriteOutput,
+} from "@/domain/ports"
 import type { Channel, ContentBrief, InstagramOutput, NaverOutput } from "@/domain/studio"
 
 type RemoteNaver = Omit<NaverOutput, "generationSource" | "qualityChecks">
@@ -69,6 +77,10 @@ function isRemoteInstagram(value: unknown): value is RemoteInstagram {
     && typeof value.coverImageId === "string"
     && value.coverImageId.length > 0
     && isStringArray(value.imageOrder)
+}
+
+function hasPhotoNarration(value: string): boolean {
+  return /(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?)/u.test(value)
 }
 
 function naverPublishableText(data: RemoteNaver): string[] {
@@ -157,6 +169,30 @@ export class OpenAIProvider implements AIProvider {
 
     const remote = await readRemoteRewrite(response, input)
     return remote ?? this.local.rewriteSection(input)
+  }
+
+  async rewriteNaverTitleAndBody(input: RewriteNaverTitleAndBodyInput): Promise<RewriteNaverTitleAndBodyOutput> {
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toNaverTitleAndBodyRewriteInput(input)),
+      })
+    } catch {
+      return this.local.rewriteNaverTitleAndBody(input)
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) return this.local.rewriteNaverTitleAndBody(input)
+
+    const remote = await readRemoteNaverTitleAndBodyRewrite(response, input)
+    return remote ?? this.local.rewriteNaverTitleAndBody(input)
   }
 
   review(input: { text: string }) {
@@ -319,6 +355,39 @@ async function readRemoteRewrite(response: Response, input: RewriteInput): Promi
   return { section: input.section, text }
 }
 
+async function readRemoteNaverTitleAndBodyRewrite(
+  response: Response,
+  input: RewriteNaverTitleAndBodyInput,
+): Promise<RewriteNaverTitleAndBodyOutput | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+
+  if (!hasExactKeys(payload, ["source", "data"])
+    || payload.source !== "openai"
+    || !hasExactKeys(payload.data, ["title", "body"])
+    || typeof payload.data.title !== "string"
+    || typeof payload.data.body !== "string") {
+    return null
+  }
+
+  const title = payload.data.title.trim()
+  const body = payload.data.body.trim()
+  if (!title
+    || !body
+    || title === input.currentTitle.trim()
+    || body === input.currentBody.trim()
+    || body.length < 500
+    || hasPhotoNarration(body)
+    || !isSafePublishableCopy([title, body], input.avoid)) {
+    return null
+  }
+  return { title, body }
+}
+
 function toRewriteInput(input: RewriteInput): RewriteInput {
   return {
     channel: input.channel,
@@ -326,6 +395,19 @@ function toRewriteInput(input: RewriteInput): RewriteInput {
     instruction: input.instruction,
     currentText: input.currentText,
     memo: input.memo,
+    avoid: input.avoid,
+    tone: input.tone,
+  }
+}
+
+function toNaverTitleAndBodyRewriteInput(input: RewriteNaverTitleAndBodyInput) {
+  return {
+    kind: "naver-title-body" as const,
+    instruction: input.instruction,
+    currentTitle: input.currentTitle,
+    currentBody: input.currentBody,
+    memo: input.memo,
+    photoContext: input.photoContext,
     avoid: input.avoid,
     tone: input.tone,
   }

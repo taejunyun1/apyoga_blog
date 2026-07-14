@@ -1,4 +1,12 @@
-import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
+import type {
+  AIProvider,
+  AnalyzeImagesInput,
+  ChannelInput,
+  RewriteInput,
+  RewriteNaverTitleAndBodyInput,
+  RewriteNaverTitleAndBodyOutput,
+  RewriteOutput,
+} from "@/domain/ports"
 import type { ContentBrief, InstagramOutput, NaverOutput, ReviewOutput } from "@/domain/studio"
 import {
   assertSafeRequiredPhrase,
@@ -302,6 +310,47 @@ export class LocalAIProvider implements AIProvider {
       section: input.section,
       text
     }
+  }
+
+  async rewriteNaverTitleAndBody(
+    input: RewriteNaverTitleAndBodyInput,
+  ): Promise<RewriteNaverTitleAndBodyOutput> {
+    const currentTitle = input.currentTitle.trim()
+    const currentBody = input.currentBody.trim()
+    if (!currentTitle || !currentBody || currentBody.length < NAVER_MIN_LENGTH) {
+      throw new Error("네이버 제목과 500자 이상의 본문이 필요해요.")
+    }
+    if (!isSafePublishableCopy([currentTitle, currentBody], input.avoid)) {
+      throw new Error("금지 표현 또는 의료적 단정이 있는 문구는 안전하게 재작성할 수 없어요.")
+    }
+
+    const memo = `${input.memo}\n${input.photoContext}`
+    const [title, body] = await Promise.all([
+      this.rewriteSection({
+        channel: "naver",
+        section: "title",
+        currentText: currentTitle,
+        instruction: input.instruction,
+        memo,
+        avoid: input.avoid,
+        tone: input.tone,
+      }),
+      this.rewriteSection({
+        channel: "naver",
+        section: "body",
+        currentText: currentBody,
+        instruction: "사진 분위기 더하기",
+        memo,
+        avoid: input.avoid,
+        tone: input.tone,
+      }),
+    ])
+
+    if (!title.text.trim() || !body.text.trim() || body.text.trim().length < NAVER_MIN_LENGTH
+      || !isSafePublishableCopy([title.text, body.text], input.avoid)) {
+      throw new Error("안전한 제목과 본문을 함께 만들지 못했어요.")
+    }
+    return { title: title.text.trim(), body: body.text.trim() }
   }
 
   async review(input: { text: string }): Promise<ReviewOutput> {
