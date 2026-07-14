@@ -52,7 +52,7 @@
 - Produces `parseOpenAIResponseUsage(payload)`, `estimateUsageKrw(usage, rates)`, `recordUsage(env, record)`, and `projectUsageSummary(env)`.
 - Extends `ContentEnv` with `OPENAI_INPUT_KRW_PER_MILLION`, `OPENAI_CACHED_INPUT_KRW_PER_MILLION`, and `OPENAI_OUTPUT_KRW_PER_MILLION`.
 
-- [ ] **Step 1: Write failing usage-ledger tests**
+- [x] **Step 1: Write failing usage-ledger tests**
 
 Create `tests/unit/usage-ledger.test.ts` with a tracked fake D1 session and assert that exact OpenAI usage becomes one privacy-safe row and an integer estimate:
 
@@ -67,7 +67,7 @@ it("calculates one request estimate with cached input pricing", async () => {
     outputKrwPerMillion: 9134.64,
   })
 
-  expect(estimate).toBe(5_771)
+  expect(estimate).toBe(5_816)
 })
 
 it("records no content fields and summarizes project totals", async () => {
@@ -93,13 +93,13 @@ it.each([
 
 Add a deployment test expecting `0002_api_usage.sql` to contain the table and indexes, and expand the fake D1 statement with `bind`, `first`, and `run` observability.
 
-- [ ] **Step 2: Run the focused usage test to verify RED**
+- [x] **Step 2: Run the focused usage test to verify RED**
 
 Run: `npm test -- --run tests/unit/usage-ledger.test.ts tests/unit/cloudflare-deployment.test.ts`
 
 Expected: FAIL because the usage module, environment fields, fake database helpers, and migration do not exist.
 
-- [ ] **Step 3: Add the safe ledger implementation and migration**
+- [x] **Step 3: Add the safe ledger implementation and migration**
 
 Implement the exact values and checks:
 
@@ -138,13 +138,13 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_draft_id ON api_usage(draft_id);
 CREATE INDEX IF NOT EXISTS idx_api_usage_created_at ON api_usage(created_at);
 ```
 
-- [ ] **Step 4: Run the focused usage test to verify GREEN**
+- [x] **Step 4: Run the focused usage test to verify GREEN**
 
 Run: `npm test -- --run tests/unit/usage-ledger.test.ts tests/unit/cloudflare-deployment.test.ts`
 
 Expected: usage calculations, no-content ledger writes, aggregates, and migration checks pass.
 
-- [ ] **Step 5: Commit the ledger foundation**
+- [x] **Step 5: Commit the ledger foundation**
 
 ```bash
 git add functions/lib/env.ts functions/lib/usage.ts migrations/0002_api_usage.sql tests/unit/auth-env-fixtures.ts tests/unit/usage-ledger.test.ts tests/unit/cloudflare-deployment.test.ts
@@ -177,7 +177,7 @@ git commit -m "2026-07-14 OpenAI 사용량 원장 및 비용 기준 추가"
 - Produces `DraftUsage` on `StudioDraft` with `inputTokens`, `cachedInputTokens`, `outputTokens`, `totalTokens`, `estimatedKrw`, and `requestCount`.
 - Requires a bounded opaque `draftId` for every remote AI request and returns `{ source, data, usage }` for every successful remote content response.
 
-- [ ] **Step 1: Write failing server and provider tests**
+- [x] **Step 1: Write failing server and provider tests**
 
 Add request usage fixtures containing a completed Responses payload with:
 
@@ -198,13 +198,13 @@ Assert all three OpenAI helpers return both validated content and usage. Add one
 
 Add equivalent analysis/rewrite tests and `GET /api/usage` tests for aggregate output, malformed summary protection, and `405` on non-GET requests. Add provider tests proving a remote success returns the usage envelope while a 502 local fallback returns `{ data: localResult, usage: null }`.
 
-- [ ] **Step 2: Run the focused server/provider tests to verify RED**
+- [x] **Step 2: Run the focused server/provider tests to verify RED**
 
 Run: `npm test -- --run tests/unit/openai-content.test.ts tests/unit/openai-image-analysis.test.ts tests/unit/content-generation-function.test.ts tests/unit/content-image-analysis-function.test.ts tests/unit/content-rewrite-function.test.ts tests/unit/openai-provider.test.ts tests/unit/usage-function.test.ts`
 
 Expected: FAIL because existing APIs return only content data and do not accept `draftId` or expose `/api/usage`.
 
-- [ ] **Step 3: Add usage envelopes and protected aggregate endpoint**
+- [x] **Step 3: Add usage envelopes and protected aggregate endpoint**
 
 Refactor helper success returns to `{ data, responseUsage }`, preserving every validation before usage reaches a handler. In each handler, validate a non-empty bounded opaque `draftId` (the client uses UUIDs while existing tests use stable fixture IDs), compute the record with the configured rates, await `recordUsage`, and return the `usage` shape only after the ledger write succeeds.
 
@@ -222,13 +222,13 @@ export const onRequestGet: PagesHandler<ContentEnv> = async ({ request, env }) =
 
 Adapt the provider parser to require exact `{ source, data, usage }` remote envelopes. Extend every AI input mapping with the store-supplied `draftId`. Keep `review` local and outside usage accounting.
 
-- [ ] **Step 4: Run focused tests to verify GREEN**
+- [x] **Step 4: Run focused tests to verify GREEN**
 
 Run the Step 2 command again.
 
 Expected: all updated helper, function, endpoint, and provider tests pass; existing local fallback assertions still pass.
 
-- [ ] **Step 5: Commit the remote usage path**
+- [x] **Step 5: Commit the remote usage path**
 
 ```bash
 git add functions src/domain src/adapters tests/unit
@@ -247,7 +247,7 @@ git commit -m "2026-07-14 AI 요청 토큰 및 추정 비용 기록 추가"
 - Produces `store.projectUsage`, `store.loadUsageSummary()`, `store.deleteDraft(id)`, and `store.goToCompletedStep(target)`.
 - Consumes `AIResult<T>` and `DraftUsage` from Task 2.
 
-- [ ] **Step 1: Write failing store and repository tests**
+- [x] **Step 1: Write failing store and repository tests**
 
 Add tests with independent fulfilled AI envelopes:
 
@@ -284,13 +284,13 @@ it("moves only to a prior stable stage and persists it", async () => {
 
 Also add a Dexie round-trip test proving a legacy stored draft missing `usage` loads with zero totals and a saved draft retains an accumulated total.
 
-- [ ] **Step 2: Run store/repository tests to verify RED**
+- [x] **Step 2: Run store/repository tests to verify RED**
 
 Run: `npm test -- --run tests/unit/studio-store.test.ts tests/unit/dexie-repository.test.ts`
 
 Expected: FAIL because providers return raw data, no usage total exists, unfinished draft deletion is not exposed, and stage navigation is absent.
 
-- [ ] **Step 3: Add minimal store behavior**
+- [x] **Step 3: Add minimal store behavior**
 
 Initialize every new draft with zero `DraftUsage`. Define one pure `addUsage` helper and invoke it only after each fulfilled AI result is validated. Keep usage inside the rewrite rollback snapshot so a failed review/persist restores both copy and usage. Treat absent usage on old drafts as the zero object during `load` and `loadHome`.
 
@@ -316,13 +316,13 @@ function goToCompletedStep(target: WorkflowStep) {
 
 Make `canGoToPriorStep` use the stable order `photos`, `organize`, `memo`, `brief`, `results` and explicitly reject `generating`.
 
-- [ ] **Step 4: Run store/repository tests to verify GREEN**
+- [x] **Step 4: Run store/repository tests to verify GREEN**
 
 Run the Step 2 command again.
 
 Expected: usage accumulation, zero fallback usage, safe draft deletion, stage boundary checks, and Dexie compatibility pass.
 
-- [ ] **Step 5: Commit client state behavior**
+- [x] **Step 5: Commit client state behavior**
 
 ```bash
 git add src/domain/studio.ts src/features/studio/studio-store.ts tests/helpers/in-memory-repository.ts tests/unit/studio-store.test.ts tests/unit/dexie-repository.test.ts
@@ -348,7 +348,7 @@ git commit -m "2026-07-14 초안 삭제 단계 이동 및 글별 사용량 저�
 - `UsageSummary` accepts `usage: DraftUsage`, `scope: "draft" | "project"`, and renders accessible Korean totals.
 - `ProgressStepper` emits `navigate` only for a completed stable step.
 
-- [ ] **Step 1: Write failing component and browser tests**
+- [x] **Step 1: Write failing component and browser tests**
 
 Add component assertions for:
 
@@ -369,13 +369,13 @@ expect(screen.getByRole("button", { name: "5단계 생성으로 이동" })).toBe
 
 Extend Playwright to seed a completed record and active draft, confirm only the active draft disappears, and verify that a stored usage fixture is visible in both HomeView and ResultEditor. Verify a numbered prior stage changes the rendered panel and a future number remains disabled.
 
-- [ ] **Step 2: Run component/browser tests to verify RED**
+- [x] **Step 2: Run component/browser tests to verify RED**
 
 Run: `npm test -- --run tests/component/history-deletion.test.ts tests/component/studio-photo-flow.test.ts tests/component/results.test.ts tests/component/usage-summary.test.ts && npx playwright test tests/e2e/studio-flow.spec.ts --reporter=line`
 
 Expected: FAIL because no unfinished-draft delete control, usage panel, or interactive completed-stage buttons exist.
 
-- [ ] **Step 3: Implement the UI with accessible semantics**
+- [x] **Step 3: Implement the UI with accessible semantics**
 
 Render each unfinished draft as the existing actionable row plus a sibling delete button. Reuse `HistoryDeleteDialog` with target kind `draft`, title `작성 중인 글 삭제`, and description `“${title}” 작성 중인 글과 사진을 영구 삭제할까요?`.
 
@@ -383,13 +383,13 @@ Make `ProgressStepper` render a button for `complete` stages with exact aria-lab
 
 Build `UsageSummary` with `Intl.NumberFormat("ko-KR")`, headings `이번 글 AI 사용량` and `프로젝트 AI 사용량`, `총 N 토큰`, input/output breakdown, request count, and `추정 비용 N원`. HomeView calls `store.loadUsageSummary()` after drafts/history and shows an unavailable note on summary failure without blocking the page.
 
-- [ ] **Step 4: Run component/browser tests to verify GREEN**
+- [x] **Step 4: Run component/browser tests to verify GREEN**
 
 Run the Step 2 command again.
 
 Expected: the controls are keyboard-accessible, deletion confirms and isolates data, only completed prior steps navigate, and both cost panels show formatted values.
 
-- [ ] **Step 5: Commit the visible workflow controls**
+- [x] **Step 5: Commit the visible workflow controls**
 
 ```bash
 git add src/features/studio/UsageSummary.vue src/features/studio/ProgressStepper.vue src/features/studio/ResultEditor.vue src/views/StudioView.vue src/views/HomeView.vue src/app/styles.css tests/component tests/e2e/studio-flow.spec.ts
@@ -403,7 +403,7 @@ git commit -m "2026-07-14 초안 삭제 단계 이동 및 사용량 화면 추�
 - Modify: `tests/unit/cloudflare-deployment.test.ts`
 - Modify: `docs/superpowers/plans/2026-07-14-draft-controls-and-usage-accounting.md`
 
-- [ ] **Step 1: Write the failing deployment documentation test**
+- [x] **Step 1: Write the failing deployment documentation test**
 
 Extend `tests/unit/cloudflare-deployment.test.ts` to require the README to document these commands without including credentials:
 
@@ -414,13 +414,13 @@ npx wrangler pages secret put OPENAI_CACHED_INPUT_KRW_PER_MILLION --project-name
 npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio
 ```
 
-- [ ] **Step 2: Run the documentation test to verify RED**
+- [x] **Step 2: Run the documentation test to verify RED**
 
 Run: `npm test -- --run tests/unit/cloudflare-deployment.test.ts`
 
 Expected: FAIL because usage migration and pricing configuration instructions are missing.
 
-- [ ] **Step 3: Document configuration and verify GREEN**
+- [x] **Step 3: Document configuration and verify GREEN**
 
 Add a privacy-safe README section explaining that current model prices are converted to KRW by the administrator, the three rate variables are estimates, and changing rates affects future rows only. Document the D1 migration-before-deploy order.
 
@@ -428,7 +428,7 @@ Run: `npm test -- --run tests/unit/cloudflare-deployment.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 4: Run complete verification**
+- [x] **Step 4: Run complete verification**
 
 Run:
 
@@ -443,7 +443,7 @@ git diff --check
 
 Expected: both type checks, all Vitest tests, production build, all browser tests, and whitespace validation pass.
 
-- [ ] **Step 5: Commit documentation and push the feature branch**
+- [x] **Step 5: Commit documentation and push the feature branch**
 
 ```bash
 git add README.md tests/unit/cloudflare-deployment.test.ts docs/superpowers/plans/2026-07-14-draft-controls-and-usage-accounting.md
