@@ -161,6 +161,28 @@ select:focus-visible {
   letter-spacing: -0.02em;
 }
 
+.history-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.history-section-heading .section-title {
+  margin: 0;
+}
+
+.history-clear-button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  color: var(--ap-error);
+  font-size: 0.82rem;
+  font-weight: 680;
+}
+
 .section-block + .section-block {
   margin-top: 30px;
 }
@@ -192,6 +214,60 @@ select:focus-visible {
   text-decoration: none;
 }
 
+.content-row--actionable {
+  padding: 0 8px 0 0;
+  gap: 4px;
+}
+
+.content-row__link {
+  display: flex;
+  min-width: 0;
+  min-height: 76px;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 8px 14px 16px;
+  color: var(--ap-ink);
+  text-decoration: none;
+}
+
+.content-row__link span {
+  min-width: 0;
+}
+
+.content-row__link strong,
+.content-row__link small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-delete-button {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ap-muted);
+}
+
+.history-delete-button:hover,
+.history-delete-button:focus-visible {
+  border-color: color-mix(in srgb, var(--ap-error) 28%, var(--ap-border));
+  background: #fff7f4;
+  color: var(--ap-error);
+}
+
+.history-delete-button svg {
+  width: 20px;
+  height: 20px;
+}
+
 .content-row + .content-row {
   border-top: 1px solid var(--ap-border);
 }
@@ -220,6 +296,74 @@ select:focus-visible {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
+}
+
+.history-dialog-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(43 43 43 / 46%);
+  padding: 20px;
+  backdrop-filter: blur(3px);
+}
+
+.history-dialog {
+  width: min(100%, 420px);
+  border: 1px solid var(--ap-border);
+  border-radius: 18px;
+  background: var(--ap-surface);
+  box-shadow: 0 24px 70px rgb(43 43 43 / 24%);
+  padding: 24px;
+}
+
+.history-dialog h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 760;
+  letter-spacing: -0.025em;
+}
+
+.history-dialog > p {
+  margin: 10px 0 0;
+  color: var(--ap-muted);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.history-dialog .history-dialog__error {
+  border-radius: 10px;
+  background: #fff7f4;
+  padding: 10px 12px;
+  color: var(--ap-error);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.history-dialog__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.history-dialog__actions button {
+  min-height: 48px;
+  border-radius: var(--ap-control-radius);
+  font-size: 0.94rem;
+  font-weight: 720;
+}
+
+.history-dialog__cancel {
+  border: 1px solid var(--ap-border);
+  background: var(--ap-surface);
+}
+
+.history-dialog__delete {
+  border: 1px solid #a33c37;
+  background: var(--ap-error);
+  color: white;
 }
 
 .privacy-rail {

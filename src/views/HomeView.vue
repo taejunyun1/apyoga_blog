@@ -1,14 +1,36 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import LogoutButton from "@/features/auth/LogoutButton.vue"
+import HistoryDeleteDialog from "@/features/studio/HistoryDeleteDialog.vue"
 import { useStudioStore } from "@/features/studio/studio-store"
 
 const router = useRouter()
 const store = useStudioStore()
 const logoutError = ref<string | null>(null)
+type DeleteTarget =
+  | { kind: "one"; id: string; title: string }
+  | { kind: "all"; count: number }
+
+const deleteTarget = ref<DeleteTarget | null>(null)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+const toastMessage = ref<string | null>(null)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+const deleteDialogTitle = computed(() => deleteTarget.value?.kind === "all" ? "모든 기록 삭제" : "기록 삭제")
+const deleteDialogDescription = computed(() => {
+  const target = deleteTarget.value
+  if (!target) return ""
+  return target.kind === "all"
+    ? `저장된 기록 ${target.count}개를 모두 삭제할까요?`
+    : `“${target.title}” 기록을 삭제할까요?`
+})
 
 onMounted(() => store.loadHome())
+onUnmounted(() => {
+  if (toastTimer) clearTimeout(toastTimer)
+})
 
 async function startDraft() {
   const draft = await store.create()
@@ -17,6 +39,52 @@ async function startDraft() {
 
 function readableDate(value: string) {
   return new Intl.DateTimeFormat("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+}
+
+function requestDelete(id: string, title: string) {
+  deleteError.value = null
+  deleteTarget.value = { kind: "one", id, title }
+}
+
+function requestClearHistory() {
+  deleteError.value = null
+  deleteTarget.value = { kind: "all", count: store.history.length }
+}
+
+function closeDeleteDialog() {
+  if (deleting.value) return
+  deleteError.value = null
+  deleteTarget.value = null
+}
+
+function showToast(message: string) {
+  if (toastTimer) clearTimeout(toastTimer)
+  toastMessage.value = message
+  toastTimer = setTimeout(() => {
+    toastMessage.value = null
+    toastTimer = null
+  }, 2500)
+}
+
+async function confirmDelete() {
+  const target = deleteTarget.value
+  if (!target || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
+  try {
+    if (target.kind === "one") {
+      await store.deleteHistory(target.id)
+      showToast("기록을 삭제했어요")
+    } else {
+      await store.clearHistory()
+      showToast("모든 기록을 삭제했어요")
+    }
+    deleteTarget.value = null
+  } catch (error) {
+    deleteError.value = error instanceof Error ? error.message : "기록을 삭제하지 못했어요. 다시 시도해 주세요."
+  } finally {
+    deleting.value = false
+  }
 }
 </script>
 
@@ -61,16 +129,33 @@ function readableDate(value: string) {
       </section>
 
       <section class="section-block" aria-labelledby="history-heading">
-        <h2 id="history-heading" class="section-title">최근 작성 기록</h2>
+        <div class="history-section-heading">
+          <h2 id="history-heading" class="section-title">최근 작성 기록</h2>
+          <button v-if="store.history.length > 0" type="button" class="history-clear-button" @click="requestClearHistory">
+            전체 삭제
+          </button>
+        </div>
         <div v-if="store.history.length === 0" class="empty-row">완료한 콘텐츠가 이곳에 표시됩니다.</div>
         <div v-else class="content-list">
-          <RouterLink v-for="item in store.history" :key="item.id" class="content-row" :to="`/studio/${item.id}`">
-            <span>
-              <strong>{{ item.title }}</strong>
-              <small>완료 · {{ readableDate(item.finalizedAt ?? item.updatedAt) }}</small>
-            </span>
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
-          </RouterLink>
+          <div v-for="item in store.history" :key="item.id" class="content-row content-row--actionable">
+            <RouterLink class="content-row__link" :to="`/studio/${item.id}`">
+              <span>
+                <strong>{{ item.title }}</strong>
+                <small>완료 · {{ readableDate(item.finalizedAt ?? item.updatedAt) }}</small>
+              </span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
+            </RouterLink>
+            <button
+              type="button"
+              class="history-delete-button"
+              :aria-label="`${item.title} 삭제`"
+              @click="requestDelete(item.id, item.title)"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5" />
+              </svg>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -83,5 +168,19 @@ function readableDate(value: string) {
         <span class="privacy-rail__note">편집 사진은 5일 후 삭제됩니다</span>
       </div>
     </footer>
+
+    <HistoryDeleteDialog
+      :open="deleteTarget !== null"
+      :title="deleteDialogTitle"
+      :description="deleteDialogDescription"
+      :busy="deleting"
+      :error="deleteError"
+      @cancel="closeDeleteDialog"
+      @confirm="confirmDelete"
+    />
+
+    <Transition name="toast">
+      <p v-if="toastMessage" class="action-toast" role="status" aria-live="polite">{{ toastMessage }}</p>
+    </Transition>
   </main>
 </template>
