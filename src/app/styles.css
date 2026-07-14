@@ -1337,6 +1337,10 @@ select:focus-visible {
   text-align: center;
 }
 
+.history-action-toast {
+  bottom: calc(76px + env(safe-area-inset-bottom));
+}
+
 .auth-field input,
 .field-label input[type="text"],
 .field-label input[type="email"],

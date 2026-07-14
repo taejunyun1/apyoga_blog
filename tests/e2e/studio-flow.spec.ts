@@ -92,11 +92,22 @@ test("deletes individual and all completed history without removing active draft
   const individualDialog = page.getByRole("alertdialog", { name: "기록 삭제" })
   await expect(individualDialog).toContainText("“저녁 수련 기록” 기록을 삭제할까요?")
   await expect(individualDialog.getByRole("button", { name: "취소" })).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath("history-delete-dialog.png"), fullPage: true })
   await individualDialog.getByRole("button", { name: "삭제" }).click()
 
-  await expect(page.getByRole("status")).toHaveText("기록을 삭제했어요")
+  const deleteToast = page.getByRole("status")
+  await expect(deleteToast).toHaveText("기록을 삭제했어요")
+  await deleteToast.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished))
+  })
+  const toastBox = await deleteToast.boundingBox()
+  const privacyRailBox = await page.locator(".privacy-rail").boundingBox()
+  expect(toastBox).not.toBeNull()
+  expect(privacyRailBox).not.toBeNull()
+  expect(toastBox!.y + toastBox!.height).toBeLessThanOrEqual(privacyRailBox!.y - 8)
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByText("저녁 수련 기록")).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath("history-delete-toast.png"), fullPage: true })
 
   await page.reload()
   await expect(page.getByText("저녁 수련 기록")).toHaveCount(0)

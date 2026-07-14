@@ -180,7 +180,7 @@ async function confirmDelete() {
     />
 
     <Transition name="toast">
-      <p v-if="toastMessage" class="action-toast" role="status" aria-live="polite">{{ toastMessage }}</p>
+      <p v-if="toastMessage" class="action-toast history-action-toast" role="status" aria-live="polite">{{ toastMessage }}</p>
     </Transition>
   </main>
 </template>
