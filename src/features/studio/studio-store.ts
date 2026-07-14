@@ -4,8 +4,13 @@ import { BrowserClipboard } from "@/adapters/browser-clipboard"
 import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-repository"
 import { prepareAnalysisImage, prepareImage, validateImageSelection } from "@/adapters/image-processor"
 import { OpenAIProvider } from "@/adapters/openai-provider"
-import { countMedicalClaimOccurrences, forbiddenExpressions } from "@/domain/content-safety"
-import type { AIProvider, RewriteInput, RewriteOutput } from "@/domain/ports"
+import { countMedicalClaimOccurrences, forbiddenExpressions, isSafePublishableCopy } from "@/domain/content-safety"
+import type {
+  AIProvider,
+  RewriteInput,
+  RewriteNaverTitleAndBodyOutput,
+  RewriteOutput,
+} from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
 import { createDraft, type StudioDraft, type StudioImage } from "@/domain/studio"
 
@@ -376,6 +381,30 @@ export const useStudioStore = defineStore("studio", () => {
       }
 
       try {
+        if (request.channel === "naver" && request.section === "titleAndBody") {
+          const output = current.naver.data
+          if (!output) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
+          const currentTitle = output.titles[0] ?? ""
+          const currentBody = output.body
+          const rewritten = await services.ai.rewriteNaverTitleAndBody({
+            currentTitle,
+            currentBody,
+            instruction: request.instruction,
+            memo: current.sourceMemo,
+            photoContext: rewritePhotoContext(current),
+            avoid: current.avoid,
+            tone: current.naverTone,
+          })
+          validateTitleAndBodyCandidate(rewritten, currentTitle, currentBody, current.avoid)
+          output.titles[0] = rewritten.title.trim()
+          output.body = rewritten.body.trim()
+          await refreshReview(current)
+          assertNoNewMedicalClaims(before.review, current.review)
+          current.updatedAt = new Date().toISOString()
+          await persistNow()
+          return { section: "titleAndBody" as const, title: output.titles[0], body: output.body, text: output.body }
+        }
+
         const currentText = sectionText(current, request.channel, request.section)
         const input: RewriteInput = {
           ...request,
@@ -393,10 +422,7 @@ export const useStudioStore = defineStore("studio", () => {
         }
         await refreshReview(current)
 
-        const previousMedicalClaims = new Set(before.review?.medicalClaims ?? [])
-        if (current.review?.medicalClaims.some((claim) => !previousMedicalClaims.has(claim))) {
-          throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
-        }
+        assertNoNewMedicalClaims(before.review, current.review)
 
         current.updatedAt = new Date().toISOString()
         await persistNow()
@@ -513,6 +539,52 @@ function channelInput(current: StudioDraft) {
     instagramTone: current.instagramTone,
     images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder })),
     brief: current.brief
+  }
+}
+
+function rewritePhotoContext(draft: StudioDraft): string {
+  const brief = draft.brief
+  if (!brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
+  return [
+    `전체 분위기: ${brief.overallMood}`,
+    `본문 초점: ${brief.bodyFocus.join(", ")}`,
+    ...brief.imageDescriptions.map((image) => `사진 설명: ${image.description}`),
+    `메모 요약: ${brief.userMemoSummary}`,
+  ].join("\n")
+}
+
+function validateTitleAndBodyCandidate(
+  rewritten: RewriteNaverTitleAndBodyOutput,
+  currentTitle: string,
+  currentBody: string,
+  avoid: string,
+): void {
+  const title = rewritten.title.trim()
+  const body = rewritten.body.trim()
+  if (!title || title === currentTitle.trim()) {
+    throw new Error("이전과 다른 제목을 만들지 못했어요. 다시 시도해 주세요.")
+  }
+  if (!body || body === currentBody.trim()) {
+    throw new Error("이전과 다른 본문을 만들지 못했어요. 다시 시도해 주세요.")
+  }
+  if (body.length < 500) {
+    throw new Error("네이버 본문은 500자 이상이어야 해요. 기존 제목과 본문을 유지합니다.")
+  }
+  if (!isSafePublishableCopy([title, body], avoid)) {
+    throw new Error("재작성 문구에 금지 표현 또는 의료적 단정이 포함되어 기존 제목과 본문을 유지합니다.")
+  }
+  if (/(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?)/u.test(body)) {
+    throw new Error("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.")
+  }
+}
+
+function assertNoNewMedicalClaims(
+  previousReview: StudioDraft["review"],
+  currentReview: StudioDraft["review"],
+): void {
+  const previousMedicalClaims = new Set(previousReview?.medicalClaims ?? [])
+  if (currentReview?.medicalClaims.some((claim) => !previousMedicalClaims.has(claim))) {
+    throw new Error("새 재작성 문구에 의료적 단정이 포함되어 기존 문구를 유지합니다.")
   }
 }
 

@@ -207,6 +207,87 @@ describe("studio workflow store", () => {
     expect(repository.saveCalls).toBeGreaterThan(1)
   })
 
+  it("rewrites the selected Naver title and body as one photo-grounded pair", async () => {
+    class TitleBodyProvider extends LocalAIProvider {
+      receivedPhotoContext = ""
+
+      override async rewriteNaverTitleAndBody(input: Parameters<LocalAIProvider["rewriteNaverTitleAndBody"]>[0]) {
+        this.receivedPhotoContext = input.photoContext
+        return {
+          title: "고요한 공간에서 다시 만난 호흡",
+          body: "공간의 결과 호흡의 리듬을 감성적인 여운으로 풀어낸 새로운 네이버 본문입니다. ".repeat(60),
+        }
+      }
+    }
+    const repository = new InMemoryRepository()
+    const ai = new TitleBodyProvider()
+    configureStudioServices({ repository, ai })
+    const store = useStudioStore()
+    store.draft = {
+      ...readyDraft(),
+      brief: {
+        ...brief,
+        imageDescriptions: [
+          { imageId: "image-1", description: "우드 바닥 위 싱잉볼과 부드러운 빛이 있는 공간" },
+          { imageId: "image-2", description: "함께 호흡을 고르는 차분한 수련의 흐름" },
+        ],
+      },
+    }
+    await store.generateAll()
+    const before = snapshot(store.draft.naver.data)
+
+    const result = await store.rewrite({ channel: "naver", section: "titleAndBody", instruction: "최근 글과 다르게" })
+
+    expect(result).toEqual({
+      section: "titleAndBody",
+      title: "고요한 공간에서 다시 만난 호흡",
+      body: "공간의 결과 호흡의 리듬을 감성적인 여운으로 풀어낸 새로운 네이버 본문입니다. ".repeat(60).trim(),
+      text: "공간의 결과 호흡의 리듬을 감성적인 여운으로 풀어낸 새로운 네이버 본문입니다. ".repeat(60).trim(),
+    })
+    expect(store.draft.naver.data?.titles[0]).toBe("고요한 공간에서 다시 만난 호흡")
+    expect(store.draft.naver.data?.body).not.toBe(before?.body)
+    expect(store.draft.naver.data?.introOptions).toEqual(before?.introOptions)
+    expect(store.draft.naver.data?.hashtags).toEqual(before?.hashtags)
+    expect(store.draft.naver.data?.imagePlacements).toEqual(before?.imagePlacements)
+    expect(ai.receivedPhotoContext).toContain("차분한 수련의 분위기")
+    expect(ai.receivedPhotoContext).toContain("우드 바닥 위 싱잉볼")
+    expect(repository.drafts.get(store.draft.id)?.naver.data?.body).toBe(store.draft.naver.data?.body)
+  })
+
+  it("restores both Naver values when saving a title-body rewrite fails", async () => {
+    class TitleBodyProvider extends LocalAIProvider {
+      override async rewriteNaverTitleAndBody() {
+        return {
+          title: "저장 전에 만든 새 제목",
+          body: "저장 실패 뒤에는 남아서는 안 되는 새로운 네이버 본문입니다. ".repeat(60),
+        }
+      }
+    }
+    class FailingRepository extends InMemoryRepository {
+      failNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.failNextSave) {
+          this.failNextSave = false
+          throw new Error("임시 저장 실패")
+        }
+        return super.saveDraft(...args)
+      }
+    }
+    const repository = new FailingRepository()
+    configureStudioServices({ repository, ai: new TitleBodyProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const before = snapshot({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt })
+    repository.failNextSave = true
+
+    await expect(store.rewrite({ channel: "naver", section: "titleAndBody", instruction: "최근 글과 다르게" }))
+      .rejects.toThrow("임시 저장 실패")
+
+    expect({ naver: store.draft.naver, review: store.draft.review, updatedAt: store.draft.updatedAt }).toEqual(before)
+  })
+
   it("preserves a later body edit when a delayed rewrite succeeds", async () => {
     const rewriteStarted = deferred<void>()
     const releaseRewrite = deferred<void>()

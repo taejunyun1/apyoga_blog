@@ -364,7 +364,7 @@ git commit -m "2026-07-14 제목 본문 묶음 재작성 제공자 연결"
 - Consumes: `AIProvider.rewriteNaverTitleAndBody` from Task 2.
 - Guarantees: title and body become visible only as one valid pair; existing Naver auxiliary fields remain byte-for-byte unchanged; any downstream failure restores the snapshot.
 
-- [ ] **Step 1: Write failing atomic store tests**
+- [x] **Step 1: Write failing atomic store tests**
 
 Add tests to `tests/unit/studio-store.test.ts` using a generated ready draft:
 
@@ -397,13 +397,13 @@ it.each(["provider", "review", "save"])("restores both values after %s failure",
 
 Also add validation cases for unchanged title, unchanged body, body shorter than 500 characters, avoided expressions, and increased medical claims. Each case must assert both original values remain unchanged.
 
-- [ ] **Step 2: Run the store tests and verify RED**
+- [x] **Step 2: Run the store tests and verify RED**
 
 Run: `npm test -- --run tests/unit/studio-store.test.ts`
 
 Expected: FAIL because `titleAndBody` is treated as an unsupported single section.
 
-- [ ] **Step 3: Implement photo context and paired validation helpers**
+- [x] **Step 3: Implement photo context and paired validation helpers**
 
 Add these focused helpers in `studio-store.ts`:
 
@@ -440,7 +440,7 @@ function validateTitleAndBodyCandidate(
 }
 ```
 
-- [ ] **Step 4: Branch inside the existing mutation queue and apply atomically**
+- [x] **Step 4: Branch inside the existing mutation queue and apply atomically**
 
 Inside the existing `rewrite` snapshot `try`, branch before `sectionText`:
 
@@ -472,13 +472,13 @@ if (request.channel === "naver" && request.section === "titleAndBody") {
 
 Extract the current post-review medical-claim comparison to `assertNoNewMedicalClaims` and call it from both the paired and legacy paths. Keep the existing catch block unchanged so it restores Naver, Instagram, review, and `updatedAt` for either path.
 
-- [ ] **Step 5: Run store tests and verify GREEN**
+- [x] **Step 5: Run store tests and verify GREEN**
 
 Run: `npm test -- --run tests/unit/studio-store.test.ts`
 
 Expected: all store tests pass, including every existing single-section mutation test.
 
-- [ ] **Step 6: Commit the store behavior**
+- [x] **Step 6: Commit the store behavior**
 
 ```bash
 git add src/features/studio/studio-store.ts tests/unit/studio-store.test.ts
