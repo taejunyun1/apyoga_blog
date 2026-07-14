@@ -37,8 +37,8 @@ describe("LocalAIProvider", () => {
     const brief = {
       ...analyzed,
       imageDescriptions: [
-        { imageId: "image-1", description: "큰 창으로 햇살이 들어오는 요가원에서 매트 위에 서 있는 장면" },
-        { imageId: "image-2", description: "나무 바닥 위 매트 곁에서 두 팔을 길게 뻗은 장면" },
+        { imageId: "image-1", description: "사진에는 큰 창으로 햇살이 들어오는 요가원에서 매트 위에 서 있는 장면" },
+        { imageId: "image-2", description: "이미지 속 나무 바닥 위 매트 곁에서 두 팔을 길게 뻗은 장면" },
       ],
     }
     const [naver, instagram] = await Promise.all([
@@ -50,12 +50,14 @@ describe("LocalAIProvider", () => {
     expect(naver.body).toContain("나무 바닥")
     expect(naver.body).toContain("여운")
     expect(naver.body).not.toMatch(/(?:\d+번째|첫 번째)\s*사진/u)
+    expect(naver.body).not.toMatch(/(?:사진|이미지)\s*(?:에는|은|는|에서|속|을|를|으로)/u)
     expect(naver.imagePlacements[0].caption).toContain("큰 창으로 햇살")
     expect(naver.imagePlacements[1].caption).toContain("나무 바닥")
     expect(instagram.captionLong).toContain("햇살")
     expect(instagram.captionLong).toContain("나무 바닥")
     expect(instagram.captionLong).toContain("여운")
     expect(instagram.captionLong).not.toMatch(/(?:\d+번째|첫 번째)\s*사진/u)
+    expect(instagram.captionLong).not.toMatch(/(?:사진|이미지)\s*(?:에는|은|는|에서|속|을|를|으로)/u)
   })
 
   it("keeps the local Naver fallback at 500 characters after filtering", async () => {

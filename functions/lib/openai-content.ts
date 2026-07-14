@@ -22,6 +22,7 @@ const GENERIC_PHOTO_WORDS = new Set([
   "번째", "사진", "이미지", "수련", "요가", "장면", "모습", "동작",
 ])
 const PHOTO_REPORT_PATTERN = /(?:사진\s*(?:\d+|(?:첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째)|(?:\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째\s*사진)(?:에는|은|는|에서|을|를)?/u
+const PHOTO_META_NARRATION_PATTERN = /(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?|마다)/u
 
 interface JsonSchema {
   type: string
@@ -260,7 +261,7 @@ function validateEmotionalPhotoCopy(
   const text = channel === "naver"
     ? (content as GeneratedNaver).body
     : (content as GeneratedInstagram).captionLong
-  if (PHOTO_REPORT_PATTERN.test(text)) {
+  if (PHOTO_REPORT_PATTERN.test(text) || PHOTO_META_NARRATION_PATTERN.test(text)) {
     throw new OpenAIContentError("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.", true)
   }
 }
@@ -284,15 +285,17 @@ function promptFor(channel: ContentChannel, retryInstruction?: string): string {
   const common = [
     "A.P YOGA의 차분하고 과장 없는 문체로 작성하세요.",
     "입력 JSON의 메모, 필수 표현, 금지 표현, 문체와 톤을 지키세요.",
-    "imageDescriptions의 구체적인 공간, 빛, 색감, 소도구와 신체 배치를 본문과 캡션에 실제로 반영하세요.",
-    "사진에서 확인된 시각적 단서는 장면 설명으로 복사하지 말고 감정과 수련의 여운으로 바꾸어 자연스러운 서사에 녹이세요.",
+    "imageDescriptions에서 사진마다 1~2개의 핵심 시각 단서만 고르고, 공간의 빛, 색감, 재질과 소품을 감정과 수련의 여운에 연결하세요.",
+    "확인된 시각적 단서는 장면 설명으로 복사하지 말고 감정과 수련의 여운으로 바꾸어 자연스러운 서사에 녹이세요.",
+    "최종 본문과 인스타그램 캡션에서는 '사진', '이미지'라는 단어로 사진을 직접 지칭하지 마세요.",
+    "인물의 신체 배치나 소품 위치를 자세히 설명하거나, 사진별 요소를 빠짐없이 나열하지 마세요.",
     "사진 순서를 붙여 장면을 나열하지 마세요. '첫 번째 사진에는', '2번째 사진은', '사진 1' 같은 보고서형 표현을 사용하지 마세요.",
     "각 사진 캡션은 같은 imageId의 설명을 충실히 바꾸어 쓰고, 보이지 않는 사실을 추가하지 마세요.",
     "치료·완치·교정 보장 같은 의료적 단정을 피하세요.",
     "입력에 없는 시간, 가격, 예약 방법, 계절 정보는 게시 전에 확인할 내용으로 표시하세요.",
   ]
   const channelInstruction = channel === "naver"
-    ? "네이버 본문은 수련 시작, 호흡 관찰, 신체 감각, 사진 장면, 일상 연결, 마무리를 나눈 문단으로 500자 이상 작성하고 반복으로 길이를 채우지 마세요."
+    ? "네이버 본문은 수련 시작, 호흡 관찰, 신체 감각, 공간에서 느낀 여운, 일상 연결, 마무리를 나눈 문단으로 500자 이상 작성하고 반복으로 길이를 채우지 마세요."
     : "인스타그램은 네이버와 다른 흐름으로 작성하고 긴 캡션과 짧은 캡션의 길이와 문장을 분명히 구분하세요."
   return [...common, channelInstruction, retryInstruction?.trim()].filter(Boolean).join("\n")
 }
@@ -309,7 +312,7 @@ function rewritePrompt(input: RewriteContentInput, retryInstruction?: string): s
     "네이버 본문을 재작성할 때는 500자 이상을 유지하세요.",
     "철학 줄이기 요청은 추상적인 단어를 구체적인 호흡과 신체 감각으로 바꾸세요.",
     "사진 분위기 더하기 요청은 입력에 없는 인물, 동작, 장소를 단정하지 말고 확인된 빛, 색감, 공간과 소품을 감정과 수련의 여운으로 연결하세요.",
-    "사진 분위기 더하기 요청에서도 사진 번호나 순서를 붙여 장면을 나열하지 마세요.",
+    "사진 분위기 더하기 요청에서도 사진 번호나 순서를 붙이지 말고, '사진'이나 '이미지'를 직접 지칭하거나 장면 요소를 나열하지 마세요.",
     retryInstruction?.trim(),
   ].filter(Boolean).join("\n")
 }

@@ -74,6 +74,7 @@ function emotionalVisualParagraphs(input: ChannelInput): string[] {
   return safeImageDescriptions(input).map(({ description }, index) => {
     const detail = description
       .replace(/^\s*(?:\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째\s*(?:사진|수련)?\s*/u, "")
+      .replace(/^\s*(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?)?\s*/u, "")
       .trim()
     return index % 2 === 0
       ? `${detail}에서 느껴지는 빛과 색의 결이 ${mood} 호흡과 어우러져 오늘 수련의 여운을 부드럽게 남겼습니다.`

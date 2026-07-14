@@ -83,7 +83,9 @@ describe("OpenAI content client", () => {
   it.each([
     ["naver", { ...validNaver(), body: `${validNaver().body} 첫 번째 사진에는 큰 창과 매트가 보입니다.` }],
     ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 2번째 사진은 나무 바닥을 보여 줍니다.` }],
-  ] as const)("rejects report-style photo enumeration in %s copy", (channel, content) => {
+    ["naver", { ...validNaver(), body: `${validNaver().body} 사진 속 발과 하반신은 잠시 멈춘 순간을 보여 줍니다.` }],
+    ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 이미지에는 나무 바닥과 꽃이 보입니다.` }],
+  ] as const)("rejects report-style or direct photo narration in %s copy", (channel, content) => {
     expect(() => validateGeneratedContent(channel, content, request))
       .toThrow("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.")
   })
@@ -129,6 +131,8 @@ describe("OpenAI content client", () => {
     expect(body.text.format.schema.properties.imagePlacements.items.properties.afterParagraph.minimum).toBe(1)
     expect(body.instructions).toContain("사진 순서를 붙여 장면을 나열하지 마세요")
     expect(body.instructions).toContain("감정과 수련의 여운으로 바꾸어")
+    expect(body.instructions).toContain("'사진', '이미지'라는 단어로 사진을 직접 지칭하지 마세요")
+    expect(body.instructions).toContain("사진마다 1~2개의 핵심 시각 단서만 고르고")
     expect(String(init.body)).not.toContain("blob:")
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
