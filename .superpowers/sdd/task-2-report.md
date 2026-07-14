@@ -130,3 +130,37 @@ Result: exit 1 with 510/513 tests passing. The three failures are the planned Ta
 ## Concerns
 
 - Branch-wide tests remain red until Task 3 unwraps provider results and accumulates usage in the store. The Task 2 focused server/provider contract and Functions type-check are green.
+
+---
+
+# Task 2 Usage Accounting Review Follow-up
+
+Date: 2026-07-14
+
+## Fixes
+
+- Added a provider-side bounded opaque `draftId` guard (required, non-blank, and at most 256 characters) before every remote generate, image-analysis, and rewrite fetch.
+- Added ledger assertions for both `rewrite` and `naver-title-body` request kinds.
+- Added missing, blank, and malformed pricing configuration coverage for generation, image analysis, and rewriting; every handler fails closed before its upstream dependency is called.
+
+## TDD and verification evidence
+
+### RED
+
+Command:
+
+```sh
+npm test -- --run tests/unit/openai-provider.test.ts
+```
+
+Result: exit 1. Three invalid-draft cases reached the fetcher and failed later with `Cannot read properties of undefined (reading 'status')`, confirming the provider lacked its own fail-closed boundary.
+
+### GREEN
+
+Command:
+
+```sh
+npm test -- --run tests/unit/openai-provider.test.ts tests/unit/content-generation-function.test.ts tests/unit/content-image-analysis-function.test.ts tests/unit/content-rewrite-function.test.ts tests/unit/usage-function.test.ts && npm run typecheck:functions
+```
+
+Result: exit 0. All 5 files and 115 tests passed; `tsc -p tsconfig.functions.json --noEmit` also passed.

@@ -94,7 +94,33 @@ function validInstagram() {
   }
 }
 
+function imageAnalysisInput(draftId?: string) {
+  return {
+    ...analyzeInput,
+    draftId,
+    images: analyzeInput.images.map((image, index) => ({
+      ...image,
+      dataUrl: `data:image/jpeg;base64,cGl4ZWxzLTI${index}=`,
+    })),
+  }
+}
+
 describe("OpenAIProvider", () => {
+  it.each([
+    ["missing", undefined],
+    ["blank", "  "],
+    ["overlong", "d".repeat(257)],
+  ])("rejects a %s draft ID before every remote request", async (_label, draftId) => {
+    const fetcher = vi.fn<typeof fetch>()
+    const provider = new OpenAIProvider({ fetcher, local: new LocalAIProvider() })
+
+    await expect(provider.generateNaver({ ...channelInput, draftId })).rejects.toThrow("초안을 확인해 주세요.")
+    await expect(provider.analyzeImages(imageAnalysisInput(draftId))).rejects.toThrow("초안을 확인해 주세요.")
+    await expect(provider.rewriteSection({ ...rewriteInput, draftId })).rejects.toThrow("초안을 확인해 주세요.")
+    await expect(provider.rewriteNaverTitleAndBody({ ...titleBodyRewriteInput, draftId })).rejects.toThrow("초안을 확인해 주세요.")
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it("returns a remote usage envelope and a null-usage local fallback", async () => {
     const remote = new OpenAIProvider({
       fetcher: vi.fn<typeof fetch>().mockResolvedValue(Response.json(remoteGeneration("naver", validNaver()))),
@@ -200,6 +226,7 @@ describe("OpenAIProvider", () => {
 
     await expect(provider.analyzeImages({
       ...analyzeInput,
+      draftId: "draft-1",
       images: analyzeInput.images.map((image) => ({ ...image, dataUrl: "data:image/jpeg;base64,cGl4ZWxz" })),
     })).rejects.toThrow("사진 분석")
     expect(fallback).not.toHaveBeenCalled()

@@ -121,11 +121,11 @@ export class OpenAIProvider implements AIProvider {
     return this.options.local ?? new LocalAIProvider()
   }
 
-  analyzeImages(input: AnalyzeImagesInput) {
-    return this.analyzeRemotely(input)
+  async analyzeImages(input: AnalyzeImagesInput): Promise<AIResult<ContentBrief>> {
+    return this.analyzeRemotely(input, requireRemoteDraftId(input.draftId))
   }
 
-  private async analyzeRemotely(input: AnalyzeImagesInput): Promise<AIResult<ContentBrief>> {
+  private async analyzeRemotely(input: AnalyzeImagesInput, draftId: string): Promise<AIResult<ContentBrief>> {
     if (input.images.some((image) => typeof image.dataUrl !== "string" || !image.dataUrl.startsWith("data:image/jpeg;base64,"))) {
       throw new Error("사진 분석용 이미지를 준비하지 못했어요.")
     }
@@ -135,7 +135,7 @@ export class OpenAIProvider implements AIProvider {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toImageAnalysisInput(input)),
+        body: JSON.stringify(toImageAnalysisInput(input, draftId)),
       })
     } catch {
       throw new Error("사진 분석에 실패했어요. 잠시 후 다시 시도해 주세요.")
@@ -154,13 +154,14 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async rewriteSection(input: RewriteInput): Promise<AIResult<RewriteOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
     let response: Response
     try {
       response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toRewriteInput(input)),
+        body: JSON.stringify(toRewriteInput(input, draftId)),
       })
     } catch {
       return { data: await this.local.rewriteSection(input), usage: null }
@@ -178,13 +179,14 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async rewriteNaverTitleAndBody(input: RewriteNaverTitleAndBodyInput): Promise<AIResult<RewriteNaverTitleAndBodyOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
     let response: Response
     try {
       response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toNaverTitleAndBodyRewriteInput(input)),
+        body: JSON.stringify(toNaverTitleAndBodyRewriteInput(input, draftId)),
       })
     } catch {
       return { data: await this.local.rewriteNaverTitleAndBody(input), usage: null }
@@ -218,11 +220,12 @@ export class OpenAIProvider implements AIProvider {
     input: ChannelInput,
     fallback: () => Promise<NaverOutput | InstagramOutput>,
   ): Promise<AIResult<NaverOutput | InstagramOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
     const response = await (this.options.fetcher ?? fetch)("/api/content/generate", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ draftId: input.draftId, channel, input: toContentInput(channel, input) }),
+      body: JSON.stringify({ draftId, channel, input: toContentInput(channel, input) }),
     })
 
     if (response.status === 401 || response.status === 403) {
@@ -425,9 +428,16 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 }
 
-function toRewriteInput(input: RewriteInput): RewriteInput {
+function requireRemoteDraftId(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 256) {
+    throw new Error("초안을 확인해 주세요.")
+  }
+  return value
+}
+
+function toRewriteInput(input: RewriteInput, draftId: string): RewriteInput {
   return {
-    draftId: input.draftId,
+    draftId,
     channel: input.channel,
     section: input.section,
     instruction: input.instruction,
@@ -438,9 +448,9 @@ function toRewriteInput(input: RewriteInput): RewriteInput {
   }
 }
 
-function toNaverTitleAndBodyRewriteInput(input: RewriteNaverTitleAndBodyInput) {
+function toNaverTitleAndBodyRewriteInput(input: RewriteNaverTitleAndBodyInput, draftId: string) {
   return {
-    draftId: input.draftId,
+    draftId,
     kind: "naver-title-body" as const,
     instruction: input.instruction,
     currentTitle: input.currentTitle,
@@ -452,9 +462,9 @@ function toNaverTitleAndBodyRewriteInput(input: RewriteNaverTitleAndBodyInput) {
   }
 }
 
-function toImageAnalysisInput(input: AnalyzeImagesInput) {
+function toImageAnalysisInput(input: AnalyzeImagesInput, draftId: string) {
   return {
-    draftId: input.draftId,
+    draftId,
     memo: input.memo,
     mustInclude: input.mustInclude,
     avoid: input.avoid,

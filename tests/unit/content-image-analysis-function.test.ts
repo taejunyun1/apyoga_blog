@@ -112,6 +112,24 @@ describe("image analysis Pages Function", () => {
     expect((await handleImageAnalysis(incoming, env)).status).toBe(status)
   })
 
+  it.each([
+    ["missing input pricing", { OPENAI_INPUT_KRW_PER_MILLION: undefined }],
+    ["blank cached-input pricing", { OPENAI_CACHED_INPUT_KRW_PER_MILLION: " " }],
+    ["malformed output pricing", { OPENAI_OUTPUT_KRW_PER_MILLION: "not-a-number" }],
+  ])("fails closed before analysis when %s is configured", async (_label, overrides) => {
+    const analyze = vi.fn().mockResolvedValue(openAIResult(validAnalysis))
+
+    const response = await handleImageAnalysis(
+      request(validBody),
+      { ...env, ...overrides },
+      { analyze, safetyIdentifier: vi.fn().mockResolvedValue("hashed-user") },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ message: "AI 설정을 확인해 주세요." })
+    expect(analyze).not.toHaveBeenCalled()
+  })
+
   it("retries one retryable OpenAI failure and never returns a generic local brief", async () => {
     const analyze = vi.fn()
       .mockRejectedValueOnce(new OpenAIImageAnalysisError("retry", true))

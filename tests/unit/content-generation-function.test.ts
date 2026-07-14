@@ -263,6 +263,24 @@ describe("content generation Pages Function", () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["missing input pricing", { OPENAI_INPUT_KRW_PER_MILLION: undefined }],
+    ["blank cached-input pricing", { OPENAI_CACHED_INPUT_KRW_PER_MILLION: " " }],
+    ["malformed output pricing", { OPENAI_OUTPUT_KRW_PER_MILLION: "not-a-number" }],
+  ])("fails closed before generation when %s is configured", async (_label, overrides) => {
+    const generate = vi.fn().mockResolvedValue(openAIResult(validNaver()))
+
+    const response = await handleContentGeneration(
+      requestFor("naver", validInput()),
+      { ...env, ...overrides },
+      dependencies(generate),
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ message: "AI 설정을 확인해 주세요." })
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it("hashes the account into a stable truncated safety identifier", async () => {
     const identifier = await hashedSafetyIdentifier("studio-user")
 

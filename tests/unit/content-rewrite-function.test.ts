@@ -3,7 +3,7 @@ import { handleContentRewrite } from "../../functions/api/content/rewrite"
 import type { RewriteContentInput } from "../../functions/lib/content-types"
 import type { ContentEnv } from "../../functions/lib/env"
 import { OpenAIContentError } from "../../functions/lib/openai-content"
-import { fakeAuthDatabase } from "./auth-env-fixtures"
+import { fakeAuthDatabase, fakeUsageDatabase } from "./auth-env-fixtures"
 
 const env: ContentEnv = {
   AUTH_USERNAME: "studio-user",
@@ -80,11 +80,12 @@ function dependencies(rewrite = vi.fn().mockResolvedValue(openAIResult({
 
 describe("content rewrite Pages Function", () => {
   it("routes a valid title-body request to one paired rewrite dependency", async () => {
+    const database = fakeUsageDatabase()
     const rewriteTitleAndBody = vi.fn().mockResolvedValue(openAIResult({
       title: "고요한 공간에서 이어진 일요일의 호흡",
       body: "새로운 감성 본문 ".repeat(100),
     }))
-    const response = await handleContentRewrite(requestFor(validTitleBodyInput()), env, {
+    const response = await handleContentRewrite(requestFor(validTitleBodyInput()), { ...env, AUTH_DB: database }, {
       ...dependencies(),
       rewriteTitleAndBody,
     } as never)
@@ -106,6 +107,9 @@ describe("content rewrite Pages Function", () => {
       },
     })
     expect(rewriteTitleAndBody).toHaveBeenCalledOnce()
+    expect(database.lastBoundValues).toEqual([
+      "draft-1", "naver-title-body", "gpt-5.6-luna", 120, 20, 80, expect.any(Number), expect.any(String),
+    ])
   })
 
   it("rejects cross-origin, non-JSON, and oversized requests", async () => {
@@ -171,13 +175,32 @@ describe("content rewrite Pages Function", () => {
     expect(rewrite).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["missing input pricing", { OPENAI_INPUT_KRW_PER_MILLION: undefined }],
+    ["blank cached-input pricing", { OPENAI_CACHED_INPUT_KRW_PER_MILLION: " " }],
+    ["malformed output pricing", { OPENAI_OUTPUT_KRW_PER_MILLION: "not-a-number" }],
+  ])("fails closed before rewriting when %s is configured", async (_label, overrides) => {
+    const rewrite = vi.fn().mockResolvedValue(openAIResult({ section: "intro", text: "호흡을 살피며 시작했습니다." }))
+
+    const response = await handleContentRewrite(
+      requestFor(validInput()),
+      { ...env, ...overrides },
+      dependencies(rewrite),
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ message: "AI 설정을 확인해 주세요." })
+    expect(rewrite).not.toHaveBeenCalled()
+  })
+
   it("returns only source and rewritten data", async () => {
+    const database = fakeUsageDatabase()
     const rewrite = vi.fn().mockResolvedValue(openAIResult({
       section: "intro",
       text: "호흡을 살피며 시작했습니다.",
       internal: "must-not-be-exposed",
     }))
-    const response = await handleContentRewrite(requestFor(validInput()), env, dependencies(rewrite))
+    const response = await handleContentRewrite(requestFor(validInput()), { ...env, AUTH_DB: database }, dependencies(rewrite))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       source: "openai",
@@ -191,6 +214,9 @@ describe("content rewrite Pages Function", () => {
         requestCount: 1,
       },
     })
+    expect(database.lastBoundValues).toEqual([
+      "draft-1", "rewrite", "gpt-5.6-luna", 120, 20, 80, expect.any(Number), expect.any(String),
+    ])
   })
 
   it("retries one retryable validation failure and returns the second rewrite", async () => {
