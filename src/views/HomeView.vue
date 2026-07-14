@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue"
-import { useRouter } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 import LogoutButton from "@/features/auth/LogoutButton.vue"
 import HistoryDeleteDialog from "@/features/studio/HistoryDeleteDialog.vue"
 import { useStudioStore } from "@/features/studio/studio-store"
 
 const router = useRouter()
+const route = useRoute()
 const store = useStudioStore()
 const logoutError = ref<string | null>(null)
 type DeleteTarget =
@@ -27,7 +28,14 @@ const deleteDialogDescription = computed(() => {
     : `“${target.title}” 기록을 삭제할까요?`
 })
 
-onMounted(() => store.loadHome())
+onMounted(async () => {
+  await store.loadHome()
+  if (route.query.saved !== "1") return
+  showToast("작성 이력에 저장했어요")
+  const query = { ...route.query }
+  delete query.saved
+  await router.replace({ path: "/", query })
+})
 onUnmounted(() => {
   if (toastTimer) clearTimeout(toastTimer)
 })

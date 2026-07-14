@@ -165,7 +165,9 @@ async function editResult(request: { channel: "naver" | "instagram"; section: "b
 }
 
 async function finalizeResult() {
-  await run(() => store.finalize(), "작성 이력에 저장했어요")
+  const completed = await run(() => store.finalize())
+  if (!completed) return
+  await router.push({ path: "/", query: { saved: "1" } })
 }
 </script>
 

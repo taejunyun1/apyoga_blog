@@ -97,6 +97,6 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
       <p v-else class="empty-row">인스타그램 글을 생성하고 있어요.</p>
     </div>
 
-    <button class="secondary-action" type="button" :disabled="pendingRewriteKey !== null" @click="emit('finalize')">작성 이력에 저장</button>
+    <button class="secondary-action" type="button" :disabled="pendingRewriteKey !== null" @click="emit('finalize')">작성 이력에 저장하고 메인으로</button>
   </section>
 </template>

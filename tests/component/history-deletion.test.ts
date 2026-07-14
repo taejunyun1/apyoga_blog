@@ -21,7 +21,7 @@ function completedDraft(title: string, finalizedAt: string) {
   }
 }
 
-async function renderHome(repository: InMemoryRepository) {
+async function renderHome(repository: InMemoryRepository, initialPath = "/") {
   configureStudioServices({ repository })
   const router = createRouter({
     history: createMemoryHistory(),
@@ -31,13 +31,20 @@ async function renderHome(repository: InMemoryRepository) {
       { path: "/account/password", component: { template: "<p>Password</p>" } }
     ]
   })
-  await router.push("/")
+  await router.push(initialPath)
   await router.isReady()
   render(HomeView, { global: { plugins: [createPinia(), router] } })
   return router
 }
 
 describe("history deletion", () => {
+  it("shows the save confirmation once and removes its flash query", async () => {
+    const router = await renderHome(new InMemoryRepository(), "/?saved=1")
+
+    expect((await screen.findByRole("status")).textContent).toBe("작성 이력에 저장했어요")
+    await waitFor(() => expect(router.currentRoute.value.fullPath).toBe("/"))
+  })
+
   it("confirms and permanently deletes one completed record", async () => {
     const repository = new InMemoryRepository()
     const completed = completedDraft("저녁 수련 기록", "2026-07-14T01:00:00.000Z")

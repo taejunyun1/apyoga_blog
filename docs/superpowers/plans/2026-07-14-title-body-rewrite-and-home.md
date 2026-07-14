@@ -613,7 +613,7 @@ git commit -m "2026-07-14 최근 글 제목 본문 동시 변경 화면 반영"
 - Produces navigation target `{ path: "/", query: { saved: "1" } }` only after `store.finalize()` resolves.
 - Consumes query `saved=1`, shows `작성 이력에 저장했어요`, and immediately replaces the route without that query.
 
-- [ ] **Step 1: Write failing save/navigation tests**
+- [x] **Step 1: Write failing save/navigation tests**
 
 Update the ResultEditor event test:
 
@@ -644,13 +644,13 @@ it("stays on results when finalization fails", async () => {
 
 Add a HomeView test starting at `/?saved=1` that expects the status message, waits for `router.replace`, and verifies a remount at `/` does not show it again.
 
-- [ ] **Step 2: Run navigation tests and verify RED**
+- [x] **Step 2: Run navigation tests and verify RED**
 
 Run: `npm test -- --run tests/component/results.test.ts tests/component/studio-generation-flow.test.ts tests/component/history-deletion.test.ts`
 
 Expected: FAIL because the button still saves without navigation and HomeView does not consume the flash query.
 
-- [ ] **Step 3: Rename the footer action and navigate only on success**
+- [x] **Step 3: Rename the footer action and navigate only on success**
 
 Change the ResultEditor button text to `작성 이력에 저장하고 메인으로` without changing the `finalize` event.
 
@@ -666,7 +666,7 @@ async function finalizeResult() {
 
 The existing `run` helper already sets the error banner and returns `false` on failure, so no navigation occurs on failure.
 
-- [ ] **Step 4: Consume the flash once in HomeView**
+- [x] **Step 4: Consume the flash once in HomeView**
 
 Import `useRoute`, create `const route = useRoute()`, and replace the current mount callback with:
 
@@ -683,13 +683,13 @@ onMounted(async () => {
 
 This reuses the existing accessible toast and timer. It removes only `saved`, preserving any unrelated query entries.
 
-- [ ] **Step 5: Run navigation tests and verify GREEN**
+- [x] **Step 5: Run navigation tests and verify GREEN**
 
 Run: `npm test -- --run tests/component/results.test.ts tests/component/studio-generation-flow.test.ts tests/component/history-deletion.test.ts`
 
 Expected: all focused component tests pass; successful finalization is in repository history before route change and failure stays on the Studio route.
 
-- [ ] **Step 6: Commit the save-to-home flow**
+- [x] **Step 6: Commit the save-to-home flow**
 
 ```bash
 git add src/features/studio/ResultEditor.vue src/views/StudioView.vue src/views/HomeView.vue tests/component/results.test.ts tests/component/studio-generation-flow.test.ts tests/component/history-deletion.test.ts

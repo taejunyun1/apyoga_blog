@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import StudioView from "@/views/StudioView.vue"
+import HomeView from "@/views/HomeView.vue"
 import { createDraft } from "@/domain/studio"
 import type { AnalyzeImagesInput } from "@/domain/ports"
 import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
@@ -103,8 +104,12 @@ async function renderMemoStep() {
   return { ai, store }
 }
 
-async function renderReadyResults(options: { instagramError?: boolean } = {}) {
-  const repository = new InMemoryRepository()
+async function renderReadyResults(options: {
+  instagramError?: boolean
+  includeHome?: boolean
+  repository?: InMemoryRepository
+} = {}) {
+  const repository = options.repository ?? new InMemoryRepository()
   const ai = new ControlledRewriteProvider()
   configureStudioServices({ repository, ai })
   const pinia = createPinia()
@@ -128,11 +133,17 @@ async function renderReadyResults(options: { instagramError?: boolean } = {}) {
   if (options.instagramError) {
     store.draft.instagram = { status: "error", data: store.draft.instagram.data, error: "다시 생성 필요" }
   }
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/studio/:draftId", component: StudioView }] })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      ...(options.includeHome ? [{ path: "/", component: HomeView }] : []),
+      { path: "/studio/:draftId", component: StudioView },
+    ],
+  })
   await router.push(`/studio/${draft.id}`)
   await router.isReady()
   render(StudioView, { global: { plugins: [pinia, router] } })
-  return { ai, store }
+  return { ai, store, router, repository }
 }
 
 describe("studio generation flow", () => {
@@ -179,7 +190,7 @@ describe("studio generation flow", () => {
     await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
 
     const radios = screen.getAllByRole("radio") as HTMLInputElement[]
-    const finalize = screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement
+    const finalize = screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }) as HTMLButtonElement
     expect(body.disabled).toBe(true)
     expect(radios.every((radio) => radio.disabled)).toBe(true)
     expect(finalize.disabled).toBe(true)
@@ -210,7 +221,7 @@ describe("studio generation flow", () => {
     await screen.findByRole("button", { name: "도입부 감성 줄이기 변경 중…" })
 
     const radios = screen.getAllByRole("radio") as HTMLInputElement[]
-    const finalize = screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement
+    const finalize = screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }) as HTMLButtonElement
     expect(body.disabled).toBe(true)
     expect(radios.every((radio) => radio.disabled)).toBe(true)
     expect(finalize.disabled).toBe(true)
@@ -247,6 +258,33 @@ describe("studio generation flow", () => {
     expect(screen.getByText(newTitle, { selector: ".rewrite-preview__title" })).toBeTruthy()
   })
 
+  it("saves to history before navigating from results to home", async () => {
+    const { repository, router, store } = await renderReadyResults({ includeHome: true })
+
+    await fireEvent.click(screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }))
+
+    await waitFor(() => expect(router.currentRoute.value.path).toBe("/"))
+    expect(router.currentRoute.value.query.saved).toBe("1")
+    expect(repository.history.has(store.draft!.id)).toBe(true)
+  })
+
+  it("stays on the result screen when saving history fails", async () => {
+    class FailingFinalizeRepository extends InMemoryRepository {
+      override async finalize(): Promise<never> {
+        throw new Error("이력 저장 실패")
+      }
+    }
+    const { router } = await renderReadyResults({
+      includeHome: true,
+      repository: new FailingFinalizeRepository(),
+    })
+
+    await fireEvent.click(screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }))
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("이력 저장 실패"))
+    expect(router.currentRoute.value.path).toMatch(/^\/studio\//)
+  })
+
   it.each([
     { outcome: "성공", reject: false },
     { outcome: "실패", reject: true }
@@ -268,7 +306,7 @@ describe("studio generation flow", () => {
     if (reject) gate.reject(new Error("재작성 실패"))
     else gate.resolve()
     if (reject) await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("재작성 실패"))
-    await waitFor(() => expect((screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement).disabled).toBe(false))
+    await waitFor(() => expect((screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }) as HTMLButtonElement).disabled).toBe(false))
 
     expect(retryWasDisabled).toBe(true)
     expect(generationCallsAfterClick).toBe(generationCallsBeforeClick)

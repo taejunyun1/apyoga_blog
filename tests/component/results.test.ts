@@ -292,7 +292,7 @@ describe("ResultEditor", () => {
 
     expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).disabled).toBe(true)
     expect((screen.getAllByRole("radio") as HTMLInputElement[]).every((radio) => radio.disabled)).toBe(true)
-    expect((screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }) as HTMLButtonElement).disabled).toBe(true)
     const naverCopy = screen.getByRole("button", { name: "본문 복사" }) as HTMLButtonElement
     expect(naverCopy.disabled).toBe(false)
     expect((screen.getByRole("tab", { name: "인스타그램" }) as HTMLButtonElement).disabled).toBe(false)
@@ -321,7 +321,7 @@ describe("ResultEditor", () => {
     expect((screen.getByLabelText("기본형 캡션") as HTMLTextAreaElement).disabled).toBe(false)
     expect((screen.getByLabelText("짧은 캡션") as HTMLTextAreaElement).disabled).toBe(false)
     expect((screen.getAllByRole("radio") as HTMLInputElement[]).every((radio) => !radio.disabled)).toBe(true)
-    expect((screen.getByRole("button", { name: "작성 이력에 저장" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole("button", { name: "작성 이력에 저장하고 메인으로" }) as HTMLButtonElement).disabled).toBe(false)
 
     await fireEvent.click(screen.getByRole("tab", { name: "네이버 블로그" }))
     expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).disabled).toBe(false)
