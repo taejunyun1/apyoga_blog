@@ -451,7 +451,7 @@ git commit -m "2026-07-14 사용량 비용 설정 및 배포 안내 추가"
 git push origin codex/photo-aware-generation
 ```
 
-- [ ] **Step 6: Apply production configuration and migration**
+- [x] **Step 6: Apply production configuration and migration**
 
 Use the exact current administrator-approved values, without printing credentials. Apply the D1 migration before deployment:
 
@@ -464,7 +464,7 @@ npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yo
 
 Expected: the migration creates `api_usage`; all three rate values are set as Pages secrets.
 
-- [ ] **Step 7: Merge and deploy**
+- [x] **Step 7: Merge and deploy**
 
 ```bash
 git -C /Users/taejun-yun/Documents/Codex/blog checkout master
@@ -477,6 +477,15 @@ npm run deploy:cloudflare
 
 Expected: master contains the feature commit, Pages reports a new deployment URL, and the production alias serves the new usage and draft-control labels.
 
-- [ ] **Step 8: Verify production and record evidence**
+- [x] **Step 8: Verify production and record evidence**
 
 Open the new Pages URL and verify the login page responds. With the authenticated test session, verify one new generation records project usage, the result shows per-draft usage, an unfinished draft can be deleted after confirmation, and a completed prior step can be reopened. Append timestamp, deployment URL, applied migration, rate-source date, verification outputs, and remaining live-check limitation (if credentials are not entered by automation) to this plan, then commit and push the evidence.
+
+#### Production evidence — 2026-07-14 KST
+
+- GitHub `main` now contains merge commit `5a464bd` from `codex/photo-aware-generation`; the feature branch was pushed through `27e3f13` first.
+- Remote D1 applied `0002_api_usage.sql`; a follow-up migration listing reported no remaining migrations.
+- The three Pages usage-rate secrets were set through interactive prompts. Their values are intentionally not stored in this repository. OpenAI model pricing and the Korea Customs exchange-rate source were checked on 2026-07-14 before configuration.
+- Pages production deployment: `https://18ec9172.ap-yoga-content-studio.pages.dev` (source `5a464bd`). The production alias `https://ap-yoga-content-studio.pages.dev/login` rendered the expected login form.
+- Merged-code verification: both TypeScript checks passed; Vitest passed 48 files / 547 tests; the production build passed; Playwright passed 8 browser tests; whitespace validation passed.
+- Live-session limitation: browser automation did not enter an account password. The unauthenticated `/api/usage` endpoint correctly returned 401; authenticated generation, per-draft usage, draft deletion, and prior-step navigation are covered by the merged Playwright test suite.
