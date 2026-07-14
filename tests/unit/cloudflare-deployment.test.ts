@@ -36,6 +36,14 @@ describe("Cloudflare Pages deployment", () => {
       .toContain("CREATE TABLE IF NOT EXISTS auth_credentials")
   })
 
+  it("includes the privacy-safe API usage ledger migration and indexes", () => {
+    const migration = readFileSync(path.join(root, "migrations/0002_api_usage.sql"), "utf8")
+
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS api_usage")
+    expect(migration).toContain("idx_api_usage_draft_id")
+    expect(migration).toContain("idx_api_usage_created_at")
+  })
+
   it("documents mandatory AUTH_DB provisioning, migration, safe inspection, and deploy order", () => {
     const readme = readFileSync(path.join(root, "README.md"), "utf8")
     const create = "npx wrangler d1 create ap-yoga-auth --location apac"

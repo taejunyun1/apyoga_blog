@@ -6,20 +6,25 @@ import type {
 
 interface FakeAuthDatabaseOptions {
   row?: Record<string, unknown> | null
+  summary?: Record<string, unknown> | null
   readError?: Error
   runSuccess?: boolean
 }
 
 class FakeAuthStatement implements AuthDatabaseStatement {
-  constructor(private readonly options: FakeAuthDatabaseOptions) {}
+  constructor(
+    private readonly options: FakeAuthDatabaseOptions,
+    private readonly observability?: FakeUsageDatabase,
+  ) {}
 
-  bind(..._values: unknown[]): AuthDatabaseStatement {
+  bind(...values: unknown[]): AuthDatabaseStatement {
+    if (this.observability) this.observability.lastBoundValues = values
     return this
   }
 
   async first<T>(): Promise<T | null> {
     if (this.options.readError) throw this.options.readError
-    return (this.options.row ?? null) as T | null
+    return (this.options.summary ?? this.options.row ?? null) as T | null
   }
 
   async run(): Promise<{ success: boolean; meta: { changes: number } }> {
@@ -28,10 +33,14 @@ class FakeAuthStatement implements AuthDatabaseStatement {
 }
 
 class FakeAuthSession implements AuthDatabaseSession {
-  constructor(private readonly options: FakeAuthDatabaseOptions) {}
+  constructor(
+    private readonly options: FakeAuthDatabaseOptions,
+    private readonly observability?: FakeUsageDatabase,
+  ) {}
 
-  prepare(_query: string): AuthDatabaseStatement {
-    return new FakeAuthStatement(this.options)
+  prepare(query: string): AuthDatabaseStatement {
+    if (this.observability) this.observability.lastQuery = query
+    return new FakeAuthStatement(this.options, this.observability)
   }
 }
 
@@ -39,4 +48,18 @@ export function fakeAuthDatabase(options: FakeAuthDatabaseOptions = {}): AuthDat
   return {
     withSession: () => new FakeAuthSession(options),
   }
+}
+
+export interface FakeUsageDatabase extends AuthDatabase {
+  lastQuery: string
+  lastBoundValues: unknown[]
+}
+
+export function fakeUsageDatabase(options: FakeAuthDatabaseOptions = {}): FakeUsageDatabase {
+  const database: FakeUsageDatabase = {
+    lastQuery: "",
+    lastBoundValues: [],
+    withSession: () => new FakeAuthSession(options, database),
+  }
+  return database
 }
