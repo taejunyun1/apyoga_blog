@@ -189,6 +189,21 @@ describe("studio workflow store", () => {
     })
   })
 
+  it("keeps the last project usage summary when loading a replacement fails", async () => {
+    const previous = usage(400, 200, 50)
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 500 })))
+    const store = useStudioStore()
+    store.projectUsage = previous
+
+    try {
+      await expect(store.loadUsageSummary()).rejects.toThrow("AI 사용량")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(store.projectUsage).toEqual(previous)
+  })
+
   it("deletes one unfinished draft and leaves history untouched", async () => {
     const repository = new InMemoryRepository()
     const active = { ...createDraft("2026-07-14T00:00:00.000Z"), images: studioImages(1) }
@@ -196,6 +211,13 @@ describe("studio workflow store", () => {
     const completed = { ...createDraft("2026-07-14T01:00:00.000Z"), finalizedAt: "2026-07-14T02:00:00.000Z" }
     repository.drafts.set(active.id, active)
     repository.images.set(active.images[0].editedBlobId, new Blob(["pixels"]))
+    const orphanedBlobId = "orphaned-active-image"
+    await repository.saveDraft(active, [{
+      id: orphanedBlobId,
+      draftId: active.id,
+      blob: new Blob(["orphaned pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z",
+    }])
     repository.drafts.set(completed.id, completed)
     repository.history.set(completed.id, completed)
     configureStudioServices({ repository })
@@ -208,6 +230,7 @@ describe("studio workflow store", () => {
 
     expect(repository.drafts.has(active.id)).toBe(false)
     expect(repository.images.has(active.images[0].editedBlobId)).toBe(false)
+    expect(repository.images.has(orphanedBlobId)).toBe(false)
     expect(repository.history.has(completed.id)).toBe(true)
     expect(store.drafts.map((item) => item.id)).not.toContain(active.id)
   })
@@ -224,6 +247,68 @@ describe("studio workflow store", () => {
     expect(repository.drafts.get(store.draft.id)?.step).toBe("memo")
     await expect(store.goToCompletedStep("results")).rejects.toThrow("이전 단계")
     await expect(store.goToCompletedStep("generating")).rejects.toThrow("이동할 수 없어요")
+  })
+
+  it("restores the prior stable step when its persistence fails", async () => {
+    class FailingRepository extends InMemoryRepository {
+      failNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.failNextSave) {
+          this.failNextSave = false
+          throw new Error("단계 저장 실패")
+        }
+        return super.saveDraft(...args)
+      }
+    }
+
+    const repository = new FailingRepository()
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), step: "results", updatedAt: "2026-07-14T00:00:00.000Z" }
+    await repository.saveDraft(store.draft)
+    const before = { step: store.draft.step, updatedAt: store.draft.updatedAt }
+    repository.failNextSave = true
+
+    await expect(store.goToCompletedStep("memo")).rejects.toThrow("단계 저장 실패")
+
+    expect({ step: store.draft?.step, updatedAt: store.draft?.updatedAt }).toEqual(before)
+    expect(repository.drafts.get(store.draft.id)).toMatchObject(before)
+  })
+
+  it("rejects backward navigation immediately while deferred generation is running", async () => {
+    const generationStarted = deferred<void>()
+    const releaseGeneration = deferred<void>()
+    class DelayedGenerationProvider extends LocalAIProvider {
+      override async generateNaver(input: Parameters<LocalAIProvider["generateNaver"]>[0]) {
+        generationStarted.resolve()
+        await releaseGeneration.promise
+        return super.generateNaver(input)
+      }
+    }
+
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository, ai: new DelayedGenerationProvider() })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    const generation = store.generateAll()
+    await generationStarted.promise
+    expect(store.draft?.step).toBe("generating")
+    const navigation = store.goToCompletedStep("memo")
+    let outcome = "pending"
+    navigation.then(() => { outcome = "resolved" }, () => { outcome = "rejected" })
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(outcome).toBe("rejected")
+    } finally {
+      releaseGeneration.resolve()
+      await generation
+      await navigation.catch(() => undefined)
+    }
+
+    expect(store.draft?.step).toBe("results")
+    expect(repository.drafts.get(store.draft!.id)?.step).toBe("results")
   })
 
   it("restores usage when rewrite persistence fails", async () => {

@@ -557,16 +557,27 @@ export const useStudioStore = defineStore("studio", () => {
   }
 
   function goToCompletedStep(target: WorkflowStep) {
+    const current = draft.value
+    if (target === "generating" || current?.step === "generating") {
+      return Promise.reject(new Error("생성 중 단계로는 이동할 수 없어요."))
+    }
+    if (!current || busy.value) {
+      return Promise.reject(new Error("완료한 이전 단계로만 이동할 수 있어요."))
+    }
     return enqueueResultMutation(async () => {
-      if (target === "generating" || draft.value?.step === "generating") {
-        throw new Error("생성 중 단계로는 이동할 수 없어요.")
-      }
-      if (!draft.value || busy.value || !canGoToPriorStep(draft.value.step, target)) {
+      if (!draft.value || !canGoToPriorStep(draft.value.step, target)) {
         throw new Error("완료한 이전 단계로만 이동할 수 있어요.")
       }
+      const before = { step: draft.value.step, updatedAt: draft.value.updatedAt }
       draft.value.step = target
       draft.value.updatedAt = new Date().toISOString()
-      await persistNow()
+      try {
+        await persistNow()
+      } catch (error) {
+        draft.value.step = before.step
+        draft.value.updatedAt = before.updatedAt
+        throw error
+      }
     })
   }
 
