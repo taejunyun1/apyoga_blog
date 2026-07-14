@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/vue"
 import userEvent from "@testing-library/user-event"
 import { createPinia, setActivePinia } from "pinia"
 import { createMemoryHistory, createRouter } from "vue-router"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import StudioView from "@/views/StudioView.vue"
 import { createDraft } from "@/domain/studio"
@@ -230,6 +230,23 @@ describe("studio generation flow", () => {
     expect(screen.queryByText("도입부의 감성을 줄였어요")).toBeNull()
   })
 
+  it("changes the visible Naver title and body together for recent-content rewriting", async () => {
+    const { ai, store } = await renderReadyResults()
+    const newTitle = "따뜻한 공간에서 새롭게 이어진 호흡"
+    const newBody = "공간의 결을 호흡과 여운으로 풀어낸 새로운 네이버 본문입니다. ".repeat(60)
+    const oldBody = store.draft?.naver.data?.body
+    vi.spyOn(ai, "rewriteNaverTitleAndBody").mockResolvedValue({ title: newTitle, body: newBody })
+
+    await fireEvent.click(screen.getByRole("button", { name: "최근 글과 다르게" }))
+
+    await waitFor(() => expect(screen.getByText("제목과 본문을 새롭게 만들었어요")).toBeTruthy())
+    expect((screen.getByLabelText(newTitle) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).value).toBe(newBody.trim())
+    expect((screen.getByLabelText("본문 편집") as HTMLTextAreaElement).value).not.toBe(oldBody)
+    expect(screen.getByText("최근 변경 · 새 제목과 본문")).toBeTruthy()
+    expect(screen.getByText(newTitle, { selector: ".rewrite-preview__title" })).toBeTruthy()
+  })
+
   it.each([
     { outcome: "성공", reject: false },
     { outcome: "실패", reject: true }
@@ -318,7 +335,7 @@ describe("studio generation flow", () => {
     repository.failNextSave = true
     await fireEvent.click(screen.getByRole("button", { name: "최근 글과 다르게" }))
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("임시 저장 실패"))
-    expect(screen.queryByText("새 제목을 만들었어요")).toBeNull()
+    expect(screen.queryByText("제목과 본문을 새롭게 만들었어요")).toBeNull()
     expect(screen.getByText("최근 변경 · 도입부")).toBeTruthy()
     expect(screen.getByText(persistedIntro, { selector: ".rewrite-preview p" })).toBeTruthy()
     expect((screen.getByRole("button", { name: "최근 글과 다르게" }) as HTMLButtonElement).disabled).toBe(false)

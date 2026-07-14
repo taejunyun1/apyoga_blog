@@ -338,20 +338,27 @@ describe("ResultEditor", () => {
         copyFallback: null,
         pendingRewriteKey: null,
         rewritePreviews: {
-          naver: { section: "title", label: "새 제목", text: "호흡과 감각을 따라간 수련" },
-          instagram: { section: "short", label: "짧은 캡션", text: "천천히 호흡한 수련." }
-        }
+          naver: {
+            kind: "title-body",
+            section: "titleAndBody",
+            label: "새 제목과 본문",
+            title: "호흡과 감각을 따라간 수련",
+            body: "차분한 호흡과 공간의 여운을 이어 간 새로운 본문입니다.",
+          },
+          instagram: { kind: "single", section: "short", label: "짧은 캡션", text: "천천히 호흡한 수련." }
+        } as never
       }
     })
 
-    expect(screen.getByText("최근 변경 · 새 제목")).toBeTruthy()
+    expect(screen.getByText("최근 변경 · 새 제목과 본문")).toBeTruthy()
     expect(screen.getByText("호흡과 감각을 따라간 수련")).toBeTruthy()
+    expect(screen.getByText("차분한 호흡과 공간의 여운을 이어 간 새로운 본문입니다.")).toBeTruthy()
 
     await fireEvent.click(screen.getByRole("tab", { name: "인스타그램" }))
     expect(screen.getByText("최근 변경 · 짧은 캡션")).toBeTruthy()
     expect(screen.getByText("천천히 호흡한 수련.")).toBeTruthy()
 
     await fireEvent.click(screen.getByRole("tab", { name: "네이버 블로그" }))
-    expect(screen.getByText("최근 변경 · 새 제목")).toBeTruthy()
+    expect(screen.getByText("최근 변경 · 새 제목과 본문")).toBeTruthy()
   })
 })

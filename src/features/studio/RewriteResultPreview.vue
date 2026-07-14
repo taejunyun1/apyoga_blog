@@ -7,6 +7,10 @@ defineProps<{ preview: RewritePreview }>()
 <template>
   <aside class="rewrite-preview" aria-live="polite">
     <strong>최근 변경 · {{ preview.label }}</strong>
-    <p>{{ preview.text }}</p>
+    <template v-if="preview.kind === 'title-body'">
+      <p class="rewrite-preview__title">{{ preview.title }}</p>
+      <p class="rewrite-preview__body">{{ preview.body }}</p>
+    </template>
+    <p v-else>{{ preview.text }}</p>
   </aside>
 </template>

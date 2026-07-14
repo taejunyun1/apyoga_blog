@@ -1247,12 +1247,20 @@ select:focus-visible {
 }
 
 .rewrite-preview p {
-  display: -webkit-box;
-  overflow: hidden;
   margin: 0;
   color: var(--ap-muted);
   font-size: 0.8rem;
   line-height: 1.55;
+}
+
+.rewrite-preview__title {
+  color: var(--ap-ink) !important;
+  font-weight: 700;
+}
+
+.rewrite-preview__body {
+  display: -webkit-box;
+  overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
 }

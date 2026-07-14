@@ -502,7 +502,7 @@ git commit -m "2026-07-14 제목 본문 원자적 재작성 및 복구 추가"
 - Produces: discriminated `RewritePreview` variants `kind: "single"` and `kind: "title-body"`.
 - Produces exact success feedback `새 제목과 본문` and `제목과 본문을 새롭게 만들었어요`.
 
-- [ ] **Step 1: Write failing action and result-flow tests**
+- [x] **Step 1: Write failing action and result-flow tests**
 
 Update the action assertion:
 
@@ -538,13 +538,13 @@ it("changes both visible Naver fields and shows a paired preview", async () => {
 
 Update existing preview fixtures to include `kind: "single"`. Add a paired preview fixture and assert its title and body render in separate elements.
 
-- [ ] **Step 2: Run UI tests and verify RED**
+- [x] **Step 2: Run UI tests and verify RED**
 
 Run: `npm test -- --run tests/unit/rewrite-actions.test.ts tests/unit/result-editor.test.ts tests/component/results.test.ts tests/component/studio-generation-flow.test.ts`
 
 Expected: FAIL because the action remains title-only and the preview accepts only one text field.
 
-- [ ] **Step 3: Change the action mapping and preview types**
+- [x] **Step 3: Change the action mapping and preview types**
 
 Change only the existing recent-content action in `rewrite-actions.ts`:
 
@@ -566,7 +566,7 @@ export type RewritePreview =
   | { kind: "title-body"; section: "titleAndBody"; label: string; title: string; body: string }
 ```
 
-- [ ] **Step 4: Render and build the paired preview in the view**
+- [x] **Step 4: Render and build the paired preview in the view**
 
 Render in `RewriteResultPreview.vue`:
 
@@ -585,13 +585,13 @@ In `StudioView.rewriteResult`, branch on `rewritten.section === "titleAndBody"` 
 
 Add CSS that clamps only `.rewrite-preview__body` to four visual lines using `display: -webkit-box`, `-webkit-line-clamp: 4`, `-webkit-box-orient: vertical`, and `overflow: hidden`. Do not clamp the actual textarea value.
 
-- [ ] **Step 5: Run UI tests and verify GREEN**
+- [x] **Step 5: Run UI tests and verify GREEN**
 
 Run: `npm test -- --run tests/unit/rewrite-actions.test.ts tests/unit/result-editor.test.ts tests/component/results.test.ts tests/component/studio-generation-flow.test.ts`
 
 Expected: all focused action and result tests pass; the displayed textarea contains the full 500+ character result.
 
-- [ ] **Step 6: Commit the paired UI**
+- [x] **Step 6: Commit the paired UI**
 
 ```bash
 git add src/features/studio/rewrite-actions.ts src/features/studio/RewriteResultPreview.vue src/views/StudioView.vue src/app/styles.css tests/unit/rewrite-actions.test.ts tests/unit/result-editor.test.ts tests/component/results.test.ts tests/component/studio-generation-flow.test.ts

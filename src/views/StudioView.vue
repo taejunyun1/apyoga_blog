@@ -128,11 +128,20 @@ async function rewriteResult(request: { channel: "naver" | "instagram"; section:
     const feedback = rewriteFeedbackFor(request)
     rewritePreviews.value = {
       ...rewritePreviews.value,
-      [request.channel]: {
-        section: rewritten.section,
-        label: feedback.preview,
-        text: rewritten.text
-      }
+      [request.channel]: "title" in rewritten && "body" in rewritten
+        ? {
+            kind: "title-body",
+            section: "titleAndBody",
+            label: feedback.preview,
+            title: rewritten.title,
+            body: rewritten.body,
+          }
+        : {
+            kind: "single",
+            section: rewritten.section,
+            label: feedback.preview,
+            text: rewritten.text,
+          }
     }
     showToast(feedback.toast)
   } catch (reason) {
