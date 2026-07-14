@@ -55,7 +55,7 @@
 - Produces: `requestOpenAINaverTitleAndBodyRewrite(input, env, options)`.
 - Guarantees: one OpenAI Responses API call returns a validated pair; legacy section rewrites remain unchanged.
 
-- [ ] **Step 1: Write failing OpenAI request and validation tests**
+- [x] **Step 1: Write failing OpenAI request and validation tests**
 
 Add a shared input and tests to `tests/unit/openai-rewrite.test.ts`:
 
@@ -100,13 +100,13 @@ it.each([
 })
 ```
 
-- [ ] **Step 2: Run the focused OpenAI tests and verify RED**
+- [x] **Step 2: Run the focused OpenAI tests and verify RED**
 
 Run: `npm test -- --run tests/unit/openai-rewrite.test.ts`
 
 Expected: FAIL because the new request type, request function, and validator do not exist.
 
-- [ ] **Step 3: Add server types and one-call OpenAI implementation**
+- [x] **Step 3: Add server types and one-call OpenAI implementation**
 
 Add to `functions/lib/content-types.ts`:
 
@@ -167,7 +167,7 @@ function naverTitleAndBodyRewriteSchema(): JsonSchema {
 
 Implement `validateNaverTitleAndBodyRewrite` using `hasExactKeys`, trimmed comparison against both current values, the 500-character rule, `forbiddenExpressions`, `hasMedicalClaim`, and the existing `hasPhotoNarration` predicate. Return trimmed `{ title, body }` only after every check succeeds.
 
-- [ ] **Step 4: Write failing Cloudflare handler tests**
+- [x] **Step 4: Write failing Cloudflare handler tests**
 
 Add to `tests/unit/content-rewrite-function.test.ts`:
 
@@ -194,13 +194,13 @@ it("rejects malformed title-body request fields", async () => {
 })
 ```
 
-- [ ] **Step 5: Run the handler tests and verify RED**
+- [x] **Step 5: Run the handler tests and verify RED**
 
 Run: `npm test -- --run tests/unit/content-rewrite-function.test.ts`
 
 Expected: FAIL because the function handler does not recognize `kind: "naver-title-body"` or the paired dependency.
 
-- [ ] **Step 6: Route and retry paired requests in the Cloudflare function**
+- [x] **Step 6: Route and retry paired requests in the Cloudflare function**
 
 Extend `RewriteDependencies` in `functions/api/content/rewrite.ts`:
 
@@ -214,13 +214,13 @@ interface RewriteDependencies {
 
 Validate the paired request first when `value.kind === "naver-title-body"`, requiring exact keys, bounded non-empty `instruction`, `currentTitle`, `currentBody`, `memo`, `photoContext`, and `tone`; allow an empty bounded `avoid` string. Branch before the legacy retry loop and retry the paired dependency at most twice using the same corrective retry instruction. Return `{ source: "openai", data: { title, body } }` on success and the existing 502 response on exhausted retryable failure.
 
-- [ ] **Step 7: Run both server test files and verify GREEN**
+- [x] **Step 7: Run both server test files and verify GREEN**
 
 Run: `npm test -- --run tests/unit/openai-rewrite.test.ts tests/unit/content-rewrite-function.test.ts`
 
 Expected: all focused server tests pass.
 
-- [ ] **Step 8: Commit the server contract**
+- [x] **Step 8: Commit the server contract**
 
 ```bash
 git add functions/lib/content-types.ts functions/lib/openai-content.ts functions/api/content/rewrite.ts tests/unit/openai-rewrite.test.ts tests/unit/content-rewrite-function.test.ts

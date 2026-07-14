@@ -1,11 +1,16 @@
 import type {
   ContentChannel,
   RewriteContentInput,
+  RewriteNaverTitleAndBodyContentInput,
   RewriteSection,
 } from "../../lib/content-types"
 import type { ContentEnv, PagesHandler } from "../../lib/env"
 import { isSameOriginJson, json } from "../../lib/http"
-import { OpenAIContentError, requestOpenAIRewrite } from "../../lib/openai-content"
+import {
+  OpenAIContentError,
+  requestOpenAINaverTitleAndBodyRewrite,
+  requestOpenAIRewrite,
+} from "../../lib/openai-content"
 import {
   hasExactKeys,
   isBoundedString,
@@ -23,6 +28,7 @@ const TONES = new Set<RewriteContentInput["tone"]>(["plain", "emotional", "deep"
 
 interface RewriteDependencies {
   rewrite: typeof requestOpenAIRewrite
+  rewriteTitleAndBody: typeof requestOpenAINaverTitleAndBodyRewrite
   safetyIdentifier(): string | Promise<string>
 }
 
@@ -31,6 +37,7 @@ export async function handleContentRewrite(
   env: ContentEnv,
   dependencies: RewriteDependencies = {
     rewrite: requestOpenAIRewrite,
+    rewriteTitleAndBody: requestOpenAINaverTitleAndBodyRewrite,
     safetyIdentifier: () => hashedSafetyIdentifier(env.AUTH_USERNAME),
   },
 ): Promise<Response> {
@@ -45,7 +52,7 @@ export async function handleContentRewrite(
     return json({ message: "AI 설정을 확인해 주세요." }, 500)
   }
 
-  let input: RewriteContentInput
+  let input: RewriteContentInput | RewriteNaverTitleAndBodyContentInput
   try {
     input = validateRewriteRequest(await readJsonBody(request))
   } catch (error) {
@@ -55,9 +62,27 @@ export async function handleContentRewrite(
     )
   }
 
+  if ("kind" in input && input.kind === "naver-title-body") {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const data = await dependencies.rewriteTitleAndBody(input, env, {
+          safetyIdentifier: await dependencies.safetyIdentifier(),
+          retryInstruction: attempt === 1
+            ? "이전 결과의 오류를 수정하고 모든 재작성 제약을 충족하세요."
+            : undefined,
+        })
+        return json({ source: "openai", data: { title: data.title, body: data.body } })
+      } catch (error) {
+        if (!(error instanceof OpenAIContentError) || !error.retryable) break
+      }
+    }
+    return json({ message: "AI 재작성이 지연되어 로컬 재작성으로 전환합니다." }, 502)
+  }
+
+  const sectionInput = input as RewriteContentInput
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await dependencies.rewrite(input, env, {
+      const data = await dependencies.rewrite(sectionInput, env, {
         safetyIdentifier: await dependencies.safetyIdentifier(),
         retryInstruction: attempt === 1
           ? "이전 결과의 오류를 수정하고 모든 재작성 제약을 충족하세요."
@@ -75,7 +100,36 @@ export async function handleContentRewrite(
   return json({ message: "AI 재작성이 지연되어 로컬 재작성으로 전환합니다." }, 502)
 }
 
-function validateRewriteRequest(value: unknown): RewriteContentInput {
+function validateRewriteRequest(value: unknown): RewriteContentInput | RewriteNaverTitleAndBodyContentInput {
+  if (hasExactKeys(value, [
+    "kind",
+    "instruction",
+    "currentTitle",
+    "currentBody",
+    "memo",
+    "photoContext",
+    "avoid",
+    "tone",
+  ])) {
+    if (value.kind !== "naver-title-body"
+      || !isBoundedString(value.instruction, 100)
+      || !value.instruction.trim()
+      || !isBoundedString(value.currentTitle, 500)
+      || !value.currentTitle.trim()
+      || !isBoundedString(value.currentBody, 12_000)
+      || !value.currentBody.trim()
+      || !isBoundedString(value.memo, 4_000)
+      || !value.memo.trim()
+      || !isBoundedString(value.photoContext, 8_000)
+      || !value.photoContext.trim()
+      || !isBoundedString(value.avoid, 500)
+      || typeof value.tone !== "string"
+      || !TONES.has(value.tone as RewriteContentInput["tone"])) {
+      throw new Error("invalid title body rewrite request")
+    }
+    return value as unknown as RewriteNaverTitleAndBodyContentInput
+  }
+
   if (!hasExactKeys(value, [
     "channel",
     "section",

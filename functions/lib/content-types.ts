@@ -61,6 +61,22 @@ export interface RewrittenContent {
   text: string
 }
 
+export interface RewriteNaverTitleAndBodyContentInput {
+  kind: "naver-title-body"
+  instruction: string
+  currentTitle: string
+  currentBody: string
+  memo: string
+  photoContext: string
+  avoid: string
+  tone: GenerateContentInput["tone"]
+}
+
+export interface RewrittenNaverTitleAndBodyContent {
+  title: string
+  body: string
+}
+
 export interface GeneratedNaver {
   titles: string[]
   introOptions: string[]

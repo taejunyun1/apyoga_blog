@@ -30,6 +30,19 @@ function validInput(): RewriteContentInput {
   }
 }
 
+function validTitleBodyInput() {
+  return {
+    kind: "naver-title-body" as const,
+    instruction: "최근 글과 다르게",
+    currentTitle: "호흡으로 돌아본 일요일 수련",
+    currentBody: "기존 본문 ".repeat(100),
+    memo: "어깨와 흉곽을 살핀 수련",
+    photoContext: "전체 분위기: 따뜻하고 고요함\n사진 설명: 우드 바닥과 싱잉볼",
+    avoid: "치료, 완치",
+    tone: "emotional" as const,
+  }
+}
+
 function requestFor(input: unknown, headers: HeadersInit = {}): Request {
   return new Request("https://studio.example/api/content/rewrite", {
     method: "POST",
@@ -53,6 +66,27 @@ function dependencies(rewrite = vi.fn().mockResolvedValue({
 }
 
 describe("content rewrite Pages Function", () => {
+  it("routes a valid title-body request to one paired rewrite dependency", async () => {
+    const rewriteTitleAndBody = vi.fn().mockResolvedValue({
+      title: "고요한 공간에서 이어진 일요일의 호흡",
+      body: "새로운 감성 본문 ".repeat(100),
+    })
+    const response = await handleContentRewrite(requestFor(validTitleBodyInput()), env, {
+      ...dependencies(),
+      rewriteTitleAndBody,
+    } as never)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      source: "openai",
+      data: {
+        title: "고요한 공간에서 이어진 일요일의 호흡",
+        body: "새로운 감성 본문 ".repeat(100),
+      },
+    })
+    expect(rewriteTitleAndBody).toHaveBeenCalledOnce()
+  })
+
   it("rejects cross-origin, non-JSON, and oversized requests", async () => {
     const crossOrigin = requestFor(validInput(), { Origin: "https://attacker.example" })
     expect((await handleContentRewrite(crossOrigin, env, dependencies())).status).toBe(403)

@@ -6,7 +6,9 @@ import type {
   GeneratedInstagram,
   GeneratedNaver,
   RewriteContentInput,
+  RewriteNaverTitleAndBodyContentInput,
   RewrittenContent,
+  RewrittenNaverTitleAndBodyContent,
 } from "./content-types"
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -144,6 +146,57 @@ export async function requestOpenAIRewrite(
   return validateRewriteContent(value, input)
 }
 
+export async function requestOpenAINaverTitleAndBodyRewrite(
+  input: RewriteNaverTitleAndBodyContentInput,
+  env: Pick<ContentEnv, "OPENAI_API_KEY">,
+  options: { fetcher?: typeof fetch; safetyIdentifier: string; retryInstruction?: string },
+): Promise<RewrittenNaverTitleAndBodyContent> {
+  let response: Response
+  try {
+    response = await (options.fetcher ?? fetch)(OPENAI_RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        store: false,
+        reasoning: { effort: "low" },
+        safety_identifier: options.safetyIdentifier,
+        instructions: naverTitleAndBodyRewritePrompt(input, options.retryInstruction),
+        input: JSON.stringify(input),
+        text: { format: naverTitleAndBodyRewriteSchema() },
+      }),
+    })
+  } catch {
+    throw new OpenAIContentError("AI 재작성 요청에 실패했어요.", true)
+  }
+
+  if (!response.ok) {
+    throw new OpenAIContentError(
+      "AI 재작성 요청에 실패했어요.",
+      response.status === 429 || response.status >= 500,
+    )
+  }
+
+  const payload = await response.json().catch(() => {
+    throw new OpenAIContentError("AI 응답을 읽지 못했어요.", true)
+  })
+  if (!isRecord(payload) || payload.status !== "completed") {
+    throw new OpenAIContentError("AI 재작성이 완료되지 않았어요.", true)
+  }
+
+  let value: unknown
+  try {
+    value = JSON.parse(outputText(payload))
+  } catch (error) {
+    if (error instanceof OpenAIContentError) throw error
+    throw new OpenAIContentError("AI 응답 형식이 올바르지 않아요.", true)
+  }
+  return validateNaverTitleAndBodyRewrite(value, input)
+}
+
 export function validateGeneratedContent(
   channel: ContentChannel,
   value: unknown,
@@ -196,6 +249,41 @@ export function validateRewriteContent(value: unknown, input: RewriteContentInpu
     throw new OpenAIContentError("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.", true)
   }
   return { section: input.section, text }
+}
+
+export function validateNaverTitleAndBodyRewrite(
+  value: unknown,
+  input: RewriteNaverTitleAndBodyContentInput,
+): RewrittenNaverTitleAndBodyContent {
+  if (!hasExactKeys(value, ["title", "body"])
+    || typeof value.title !== "string"
+    || typeof value.body !== "string") {
+    throw new OpenAIContentError("AI 재작성 형식이 올바르지 않아요.", true)
+  }
+
+  const title = value.title.trim()
+  const body = value.body.trim()
+  if (!title || !body) {
+    throw new OpenAIContentError("AI 재작성 형식이 올바르지 않아요.", true)
+  }
+  if (title === input.currentTitle.trim()) {
+    throw new OpenAIContentError("이전과 다른 제목을 만들지 못했어요.", true)
+  }
+  if (body === input.currentBody.trim()) {
+    throw new OpenAIContentError("이전과 다른 본문을 만들지 못했어요.", true)
+  }
+  if (body.length < 500) {
+    throw new OpenAIContentError("네이버 본문은 500자 이상이어야 해요.", true)
+  }
+  if (forbiddenExpressions(input.avoid).some((expression) => title.includes(expression) || body.includes(expression))
+    || hasMedicalClaim(title)
+    || hasMedicalClaim(body)) {
+    throw new OpenAIContentError("금지 표현이 재작성 문구에 포함되었어요.", true)
+  }
+  if (hasPhotoNarration(body)) {
+    throw new OpenAIContentError("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.", true)
+  }
+  return { title, body }
 }
 
 function validateImageReferences(
@@ -324,6 +412,25 @@ function rewritePrompt(input: RewriteContentInput, retryInstruction?: string): s
   ].filter(Boolean).join("\n")
 }
 
+function naverTitleAndBodyRewritePrompt(
+  input: RewriteNaverTitleAndBodyContentInput,
+  retryInstruction?: string,
+): string {
+  return [
+    "A.P YOGA 네이버 글의 현재 제목과 본문을 함께 재작성하세요.",
+    "도입부, 해시태그, 수업 안내, 사진 배치 정보는 만들거나 변경하지 마세요.",
+    `재작성 요청: ${input.instruction}`,
+    `수련 메모: ${input.memo}`,
+    `확인된 사진 맥락:\n${input.photoContext}`,
+    `문체 톤: ${input.tone}`,
+    `금지 표현: ${input.avoid}`,
+    "제목과 본문은 기존과 모두 달라야 하며 서로 같은 흐름을 가져야 합니다.",
+    "본문은 500자 이상이며 사진 장면을 설명하거나 나열하지 말고 분위기와 감각을 감성적인 발행 문장으로 연결하세요.",
+    "치료·완치·교정 보장 같은 의료적 단정을 피하세요.",
+    retryInstruction?.trim(),
+  ].filter(Boolean).join("\n")
+}
+
 function schemaFor(channel: ContentChannel): JsonSchema {
   const stringSchema = { type: "string", minLength: 1 }
   const stringArray = (minItems = 1, maxItems?: number) => ({
@@ -402,6 +509,23 @@ function rewriteSchema(): JsonSchema {
           enum: ["title", "intro", "body", "hook", "caption", "short", "hashtags"],
         },
         text: { type: "string", minLength: 1 },
+      },
+    },
+  }
+}
+
+function naverTitleAndBodyRewriteSchema(): JsonSchema {
+  return {
+    type: "json_schema",
+    name: "rewrite_naver_title_body",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "body"],
+      properties: {
+        title: { type: "string", minLength: 1 },
+        body: { type: "string", minLength: 500 },
       },
     },
   }
