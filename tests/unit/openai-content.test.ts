@@ -80,6 +80,14 @@ async function expectRetryable(result: Promise<unknown>, message?: string): Prom
 }
 
 describe("OpenAI content client", () => {
+  it.each([
+    ["naver", { ...validNaver(), body: `${validNaver().body} 첫 번째 사진에는 큰 창과 매트가 보입니다.` }],
+    ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 2번째 사진은 나무 바닥을 보여 줍니다.` }],
+  ] as const)("rejects report-style photo enumeration in %s copy", (channel, content) => {
+    expect(() => validateGeneratedContent(channel, content, request))
+      .toThrow("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.")
+  })
+
   it("rejects Naver copy whose body and image caption ignore the analyzed photo", () => {
     const unrelated = {
       ...validNaver(),
@@ -119,6 +127,8 @@ describe("OpenAI content client", () => {
     expect(body.text.format.schema.additionalProperties).toBe(false)
     expect(body.text.format.schema.properties.imagePlacements.items.additionalProperties).toBe(false)
     expect(body.text.format.schema.properties.imagePlacements.items.properties.afterParagraph.minimum).toBe(1)
+    expect(body.instructions).toContain("사진 순서를 붙여 장면을 나열하지 마세요")
+    expect(body.instructions).toContain("감정과 수련의 여운으로 바꾸어")
     expect(String(init.body)).not.toContain("blob:")
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
