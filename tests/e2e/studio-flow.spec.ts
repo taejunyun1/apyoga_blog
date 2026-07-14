@@ -83,6 +83,7 @@ async function seedHistory(page: Page) {
 }
 
 test("deletes individual and all completed history without removing active drafts", async ({ page }, testInfo) => {
+  await page.route("**/api/auth/session", (route) => route.fulfill({ status: 204 }))
   await seedHistory(page)
 
   const individualDelete = page.getByRole("button", { name: "저녁 수련 기록 삭제" })
