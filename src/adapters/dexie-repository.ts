@@ -92,6 +92,23 @@ export class DexieStudioRepository {
     return (await this.db.history.orderBy("finalizedAt").reverse().toArray()).map((row) => row.value)
   }
 
+  async deleteHistory(id: string): Promise<void> {
+    await this.db.transaction("rw", this.db.history, this.db.drafts, this.db.images, async () => {
+      await this.db.history.delete(id)
+      await this.db.drafts.delete(id)
+      await this.db.images.where("draftId").equals(id).delete()
+    })
+  }
+
+  async clearHistory(): Promise<void> {
+    await this.db.transaction("rw", this.db.history, this.db.drafts, this.db.images, async () => {
+      const ids = (await this.db.history.toArray()).map((row) => row.id)
+      for (const id of ids) await this.db.images.where("draftId").equals(id).delete()
+      await this.db.drafts.bulkDelete(ids)
+      await this.db.history.bulkDelete(ids)
+    })
+  }
+
   async deleteDraft(id: string): Promise<void> {
     await this.db.transaction("rw", this.db.drafts, this.db.images, async () => {
       await this.db.drafts.delete(id)

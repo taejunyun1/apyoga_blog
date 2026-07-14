@@ -19,6 +19,15 @@ export class InMemoryRepository {
   async cleanupExpired() { return { drafts: 0, images: 0 } }
   async finalize(draft: StudioDraft) { this.history.set(draft.id, JSON.parse(JSON.stringify(draft)) as StudioDraft) }
   async listHistory() { return [...this.history.values()] }
+  async deleteHistory(id: string) {
+    this.history.delete(id)
+    this.drafts.delete(id)
+  }
+  async clearHistory() {
+    const ids = [...this.history.keys()]
+    for (const id of ids) this.drafts.delete(id)
+    this.history.clear()
+  }
   async deleteDraft(id: string) { this.drafts.delete(id) }
   async deleteImage(id: string) { this.images.delete(id) }
 }

@@ -64,4 +64,51 @@ describe("DexieStudioRepository", () => {
 
     expect(await repo.getImageBlob("blob-1")).toBeUndefined()
   })
+
+  it("deletes one completed history record with its draft and images", async () => {
+    const repo = repository()
+    const completed = {
+      ...createDraft("2026-07-11T00:00:00.000Z"),
+      finalizedAt: "2026-07-11T01:00:00.000Z",
+      images: studioImages(1)
+    }
+    await repo.saveDraft(completed, [{
+      id: completed.images[0].editedBlobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z"
+    }])
+    await repo.finalize(completed)
+
+    await repo.deleteHistory(completed.id)
+
+    expect(await repo.listHistory()).toEqual([])
+    expect(await repo.getDraft(completed.id)).toBeUndefined()
+    expect(await repo.getImageBlob(completed.images[0].editedBlobId)).toBeUndefined()
+  })
+
+  it("clears completed history while preserving unfinished drafts", async () => {
+    const repo = repository()
+    const unfinished = { ...createDraft("2026-07-11T00:00:00.000Z"), title: "작성 중" }
+    const completed = {
+      ...createDraft("2026-07-11T01:00:00.000Z"),
+      finalizedAt: "2026-07-11T02:00:00.000Z",
+      images: studioImages(1)
+    }
+    await repo.saveDraft(unfinished)
+    await repo.saveDraft(completed, [{
+      id: completed.images[0].editedBlobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z"
+    }])
+    await repo.finalize(completed)
+
+    await repo.clearHistory()
+
+    expect(await repo.listHistory()).toEqual([])
+    expect(await repo.getDraft(completed.id)).toBeUndefined()
+    expect(await repo.getImageBlob(completed.images[0].editedBlobId)).toBeUndefined()
+    expect((await repo.getDraft(unfinished.id))?.title).toBe("작성 중")
+  })
 })
