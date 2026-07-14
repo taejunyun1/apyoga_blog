@@ -32,6 +32,91 @@ async function mockImageAnalysis(page: Page) {
   })
 }
 
+async function seedHistory(page: Page) {
+  await page.goto("/")
+  await page.getByRole("button", { name: "새 글 만들기" }).click()
+  await expect(page).toHaveURL(/\/studio\//)
+  await page.goto("/")
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("ap-yoga-content-studio")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction(["drafts", "history"], "readwrite")
+    const drafts = transaction.objectStore("drafts")
+    const history = transaction.objectStore("history")
+    const unfinished = {
+      id: "active-draft",
+      title: "작성 중인 글",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      finalizedAt: null,
+      images: []
+    }
+    const first = {
+      id: "history-one",
+      title: "저녁 수련 기록",
+      updatedAt: "2026-07-14T01:00:00.000Z",
+      finalizedAt: "2026-07-14T01:00:00.000Z",
+      images: []
+    }
+    const second = {
+      id: "history-two",
+      title: "아침 호흡 기록",
+      updatedAt: "2026-07-14T02:00:00.000Z",
+      finalizedAt: "2026-07-14T02:00:00.000Z",
+      images: []
+    }
+    drafts.put({ id: unfinished.id, updatedAt: unfinished.updatedAt, finalizedAt: null, value: unfinished })
+    for (const value of [first, second]) {
+      drafts.put({ id: value.id, updatedAt: value.updatedAt, finalizedAt: value.finalizedAt, value })
+      history.put({ id: value.id, finalizedAt: value.finalizedAt, value })
+    }
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    database.close()
+  })
+  await page.reload()
+}
+
+test("deletes individual and all completed history without removing active drafts", async ({ page }, testInfo) => {
+  await seedHistory(page)
+
+  const individualDelete = page.getByRole("button", { name: "저녁 수련 기록 삭제" })
+  await expect(individualDelete).toBeVisible()
+  await expect(individualDelete).toHaveCSS("cursor", "pointer")
+  await individualDelete.click()
+  const individualDialog = page.getByRole("alertdialog", { name: "기록 삭제" })
+  await expect(individualDialog).toContainText("“저녁 수련 기록” 기록을 삭제할까요?")
+  await expect(individualDialog.getByRole("button", { name: "취소" })).toBeFocused()
+  await individualDialog.getByRole("button", { name: "삭제" }).click()
+
+  await expect(page.getByRole("status")).toHaveText("기록을 삭제했어요")
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByText("저녁 수련 기록")).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByText("저녁 수련 기록")).toHaveCount(0)
+  await expect(page.getByText("아침 호흡 기록")).toBeVisible()
+  await expect(page.getByRole("link", { name: "작성 중인 글 이어서 작성" })).toBeVisible()
+
+  await page.getByRole("button", { name: "전체 삭제" }).click()
+  const clearDialog = page.getByRole("alertdialog", { name: "모든 기록 삭제" })
+  await expect(clearDialog).toContainText("저장된 기록 1개를 모두 삭제할까요?")
+  await clearDialog.getByRole("button", { name: "삭제" }).click()
+
+  await expect(page.getByRole("status")).toHaveText("모든 기록을 삭제했어요")
+  await expect(page.getByText("완료한 콘텐츠가 이곳에 표시됩니다.")).toBeVisible()
+  await expect(page.getByRole("link", { name: "작성 중인 글 이어서 작성" })).toBeVisible()
+  const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(horizontalOverflow).toBe(false)
+
+  await page.screenshot({ path: testInfo.outputPath("history-deletion.png"), fullPage: true })
+})
+
 test("creates and restores a two-channel yoga post", async ({ page }, testInfo) => {
   await mockImageAnalysis(page)
   await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
