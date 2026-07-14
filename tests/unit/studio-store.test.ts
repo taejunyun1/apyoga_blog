@@ -2,7 +2,8 @@ import { createPinia, setActivePinia } from "pinia"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import { OpenAIProvider } from "@/adapters/openai-provider"
-import { createDraft, type ContentBrief, type InstagramOutput } from "@/domain/studio"
+import type { AIProvider } from "@/domain/ports"
+import { createDraft, type ContentBrief, type DraftUsage, type InstagramOutput } from "@/domain/studio"
 import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
 import { analyzeInput, studioImages } from "../fixtures"
 import { InMemoryRepository } from "../helpers/in-memory-repository"
@@ -47,12 +48,214 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function usage(inputTokens: number, outputTokens: number, cachedInputTokens = 0): DraftUsage {
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedKrw: 0,
+    requestCount: 1,
+  }
+}
+
+class EnvelopeProvider implements AIProvider {
+  private readonly local = new LocalAIProvider()
+
+  constructor(private readonly usages: {
+    analysis: DraftUsage | null
+    naver: DraftUsage | null
+    instagram: DraftUsage | null
+    rewrite: DraftUsage | null
+  }) {}
+
+  async analyzeImages(input: Parameters<LocalAIProvider["analyzeImages"]>[0]) {
+    return { data: await this.local.analyzeImages(input), usage: this.usages.analysis }
+  }
+
+  async generateNaver(input: Parameters<LocalAIProvider["generateNaver"]>[0]) {
+    return { data: await this.local.generateNaver(input), usage: this.usages.naver }
+  }
+
+  async generateInstagram(input: Parameters<LocalAIProvider["generateInstagram"]>[0]) {
+    return { data: await this.local.generateInstagram(input), usage: this.usages.instagram }
+  }
+
+  async rewriteSection(input: Parameters<LocalAIProvider["rewriteSection"]>[0]) {
+    return { data: await this.local.rewriteSection(input), usage: this.usages.rewrite }
+  }
+
+  async rewriteNaverTitleAndBody(input: Parameters<LocalAIProvider["rewriteNaverTitleAndBody"]>[0]) {
+    return { data: await this.local.rewriteNaverTitleAndBody(input), usage: this.usages.rewrite }
+  }
+
+  review(input: Parameters<LocalAIProvider["review"]>[0]) {
+    return this.local.review(input)
+  }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   resetStudioServices()
 })
 
 describe("studio workflow store", () => {
+  it("adds successful analysis, generation, and rewrite usage to its draft", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({
+      repository,
+      ai: new EnvelopeProvider({
+        analysis: usage(100, 20, 20),
+        naver: usage(40, 30),
+        instagram: usage(30, 10),
+        rewrite: usage(10, 5),
+      }),
+      prepareAnalysisImage: vi.fn().mockResolvedValue("data:image/jpeg;base64,cGhvdG8="),
+    })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), brief: null, briefConfirmed: false, step: "memo" }
+    for (const image of store.draft.images) repository.images.set(image.editedBlobId, new Blob([image.id]))
+
+    await store.analyze()
+    store.confirmBrief()
+    await store.generateAll()
+    await store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" })
+
+    expect(store.draft?.usage).toMatchObject({
+      inputTokens: 180,
+      cachedInputTokens: 20,
+      outputTokens: 65,
+      totalTokens: 245,
+      requestCount: 4,
+    })
+  })
+
+  it("does not add usage for a local fallback", async () => {
+    configureStudioServices({
+      repository: new InMemoryRepository(),
+      ai: new EnvelopeProvider({ analysis: null, naver: null, instagram: null, rewrite: null }),
+    })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+
+    await store.generateAll()
+
+    expect(store.draft?.usage.requestCount).toBe(0)
+  })
+
+  it("adds usage when retrying one channel succeeds", async () => {
+    configureStudioServices({
+      repository: new InMemoryRepository(),
+      ai: new EnvelopeProvider({
+        analysis: null,
+        naver: usage(40, 30),
+        instagram: usage(30, 10),
+        rewrite: null,
+      }),
+    })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+
+    await store.generateAll()
+    store.draft.naver = { status: "error", data: null, error: "failed" }
+    await store.retryChannel("naver")
+
+    expect(store.draft?.usage).toMatchObject({
+      inputTokens: 110,
+      outputTokens: 70,
+      totalTokens: 180,
+      requestCount: 3,
+    })
+  })
+
+  it("loads the project usage summary without changing draft totals", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(usage(400, 200, 50)))
+    vi.stubGlobal("fetch", fetcher)
+    const store = useStudioStore()
+
+    try {
+      await store.loadUsageSummary()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(fetcher).toHaveBeenCalledWith("/api/usage", { credentials: "same-origin" })
+    expect(store.projectUsage).toMatchObject({
+      inputTokens: 400,
+      cachedInputTokens: 50,
+      outputTokens: 200,
+      totalTokens: 600,
+      requestCount: 1,
+    })
+  })
+
+  it("deletes one unfinished draft and leaves history untouched", async () => {
+    const repository = new InMemoryRepository()
+    const active = { ...createDraft("2026-07-14T00:00:00.000Z"), images: studioImages(1) }
+    delete (active as { usage?: DraftUsage }).usage
+    const completed = { ...createDraft("2026-07-14T01:00:00.000Z"), finalizedAt: "2026-07-14T02:00:00.000Z" }
+    repository.drafts.set(active.id, active)
+    repository.images.set(active.images[0].editedBlobId, new Blob(["pixels"]))
+    repository.drafts.set(completed.id, completed)
+    repository.history.set(completed.id, completed)
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    await store.loadHome()
+
+    expect(store.drafts[0]?.usage.requestCount).toBe(0)
+
+    await store.deleteDraft(active.id)
+
+    expect(repository.drafts.has(active.id)).toBe(false)
+    expect(repository.images.has(active.images[0].editedBlobId)).toBe(false)
+    expect(repository.history.has(completed.id)).toBe(true)
+    expect(store.drafts.map((item) => item.id)).not.toContain(active.id)
+  })
+
+  it("moves only to a prior stable stage and persists it", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), step: "results" }
+
+    await store.goToCompletedStep("memo")
+
+    expect(store.draft?.step).toBe("memo")
+    expect(repository.drafts.get(store.draft.id)?.step).toBe("memo")
+    await expect(store.goToCompletedStep("results")).rejects.toThrow("이전 단계")
+    await expect(store.goToCompletedStep("generating")).rejects.toThrow("이동할 수 없어요")
+  })
+
+  it("restores usage when rewrite persistence fails", async () => {
+    class FailingRepository extends InMemoryRepository {
+      failNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.failNextSave) {
+          this.failNextSave = false
+          throw new Error("임시 저장 실패")
+        }
+        return super.saveDraft(...args)
+      }
+    }
+
+    const repository = new FailingRepository()
+    configureStudioServices({
+      repository,
+      ai: new EnvelopeProvider({ analysis: null, naver: null, instagram: null, rewrite: usage(10, 5) }),
+    })
+    const store = useStudioStore()
+    store.draft = readyDraft()
+    await store.generateAll()
+    const beforeUsage = snapshot(store.draft.usage)
+    repository.failNextSave = true
+
+    await expect(store.rewrite({ channel: "naver", section: "intro", instruction: "감성 줄이기" }))
+      .rejects.toThrow("임시 저장 실패")
+
+    expect(store.draft?.usage).toEqual(beforeUsage)
+  })
+
   it("creates and immediately persists a new draft", async () => {
     const repository = new InMemoryRepository()
     configureStudioServices({ repository })
@@ -163,8 +366,8 @@ describe("studio workflow store", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
       const request = JSON.parse(String(init?.body)) as { channel: "naver" | "instagram" }
       const { generationSource: _generationSource, qualityChecks: _qualityChecks, ...data } = remoteInstagram
-      if (request.channel === "naver") return Response.json({ channel: "instagram", source: "openai", data })
-      return Response.json({ channel: "instagram", source: "openai", data })
+      if (request.channel === "naver") return Response.json({ channel: "instagram", source: "openai", data, usage: usage(1, 1) })
+      return Response.json({ channel: "instagram", source: "openai", data, usage: usage(1, 1) })
     })
     configureStudioServices({ repository, ai: new OpenAIProvider({ fetcher }) })
     const store = useStudioStore()

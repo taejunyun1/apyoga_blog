@@ -28,6 +28,10 @@ export class InMemoryRepository {
     for (const id of ids) this.drafts.delete(id)
     this.history.clear()
   }
-  async deleteDraft(id: string) { this.drafts.delete(id) }
+  async deleteDraft(id: string) {
+    const draft = this.drafts.get(id)
+    this.drafts.delete(id)
+    for (const image of draft?.images ?? []) this.images.delete(image.editedBlobId)
+  }
   async deleteImage(id: string) { this.images.delete(id) }
 }

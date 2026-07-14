@@ -1,7 +1,9 @@
 import { Blob as NodeBlob } from "node:buffer"
 import { afterEach, describe, expect, it } from "vitest"
+import { createPinia, setActivePinia } from "pinia"
 import { DexieStudioRepository } from "@/adapters/dexie-repository"
 import { createDraft } from "@/domain/studio"
+import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
 import { studioImages } from "../fixtures"
 
 const repositories: DexieStudioRepository[] = []
@@ -21,6 +23,44 @@ afterEach(async () => {
 })
 
 describe("DexieStudioRepository", () => {
+  it("normalizes legacy draft usage on store load and retains saved accumulated totals", async () => {
+    const repo = repository()
+    const legacy = createDraft("2026-07-11T00:00:00.000Z")
+    const storedLegacy = { ...legacy } as { usage?: unknown }
+    delete storedLegacy.usage
+    await repo.saveDraft(storedLegacy as ReturnType<typeof createDraft>)
+
+    setActivePinia(createPinia())
+    resetStudioServices()
+    configureStudioServices({ repository: repo })
+    const store = useStudioStore()
+    await store.load(legacy.id)
+
+    expect(store.draft?.usage).toEqual({
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedKrw: 0,
+      requestCount: 0,
+    })
+
+    const accumulated = {
+      ...createDraft("2026-07-11T01:00:00.000Z"),
+      usage: {
+        inputTokens: 40,
+        cachedInputTokens: 5,
+        outputTokens: 10,
+        totalTokens: 50,
+        estimatedKrw: 2,
+        requestCount: 2,
+      },
+    }
+    await repo.saveDraft(accumulated)
+
+    expect((await repo.getDraft(accumulated.id))?.usage.totalTokens).toBe(50)
+  })
+
   it("saves serializable draft state and edited blobs", async () => {
     const repo = repository()
     const draft = { ...createDraft("2026-07-11T00:00:00.000Z"), images: studioImages(1) }

@@ -6,13 +6,14 @@ import { prepareAnalysisImage, prepareImage, validateImageSelection } from "@/ad
 import { OpenAIProvider } from "@/adapters/openai-provider"
 import { countMedicalClaimOccurrences, forbiddenExpressions, isSafePublishableCopy } from "@/domain/content-safety"
 import type {
+  AIResult,
   AIProvider,
   RewriteInput,
   RewriteNaverTitleAndBodyOutput,
   RewriteOutput,
 } from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
-import { createDraft, type StudioDraft, type StudioImage } from "@/domain/studio"
+import { createDraft, type DraftUsage, type StudioDraft, type StudioImage, type WorkflowStep } from "@/domain/studio"
 
 export interface StudioRepository {
   saveDraft(draft: StudioDraft, images?: EditedImageRecord[]): Promise<void>
@@ -28,9 +29,15 @@ export interface StudioRepository {
   deleteImage(id: string): Promise<void>
 }
 
+type LegacyAIProvider = {
+  [Method in keyof AIProvider]: AIProvider[Method] extends (...args: infer Args) => Promise<AIResult<infer Data>>
+    ? (...args: Args) => Promise<Data>
+    : AIProvider[Method]
+}
+
 export interface StudioServices {
   repository: StudioRepository
-  ai: AIProvider
+  ai: AIProvider | LegacyAIProvider
   clipboard: { copy(text: string): Promise<{ ok: boolean; error?: string }> }
   prepareImage: typeof prepareImage
   prepareAnalysisImage: typeof prepareAnalysisImage
@@ -76,6 +83,7 @@ export const useStudioStore = defineStore("studio", () => {
   const draft = ref<StudioDraft | null>(null)
   const drafts = ref<StudioDraft[]>([])
   const history = ref<StudioDraft[]>([])
+  const projectUsage = ref<DraftUsage>(emptyUsage())
   const saveStatus = ref<"idle" | "saving" | "saved" | "error" | "restored">("idle")
   const lastSavedAt = ref<string | null>(null)
   const busy = ref(false)
@@ -117,8 +125,28 @@ export const useStudioStore = defineStore("studio", () => {
 
   async function loadHome(now = new Date().toISOString()) {
     await services.repository.cleanupExpired(now)
-    drafts.value = await services.repository.listDrafts()
-    history.value = await services.repository.listHistory()
+    drafts.value = (await services.repository.listDrafts()).map(normalizeDraftUsage)
+    history.value = (await services.repository.listHistory()).map(normalizeDraftUsage)
+  }
+
+  async function loadUsageSummary() {
+    let response: Response
+    try {
+      response = await fetch("/api/usage", { credentials: "same-origin" })
+    } catch {
+      throw new Error("AI 사용량을 불러오지 못했어요.")
+    }
+    if (!response.ok) throw new Error("AI 사용량을 불러오지 못했어요.")
+
+    let summary: unknown
+    try {
+      summary = await response.json()
+    } catch {
+      throw new Error("AI 사용량을 불러오지 못했어요.")
+    }
+    if (!isDraftUsage(summary)) throw new Error("AI 사용량을 불러오지 못했어요.")
+    projectUsage.value = summary
+    return summary
   }
 
   async function deleteHistory(id: string) {
@@ -131,9 +159,15 @@ export const useStudioStore = defineStore("studio", () => {
     history.value = []
   }
 
+  async function deleteDraft(id: string) {
+    await services.repository.deleteDraft(id)
+    drafts.value = drafts.value.filter((item) => item.id !== id)
+  }
+
   async function load(id: string) {
     const restored = await services.repository.getDraft(id)
     if (!restored) throw new Error("작성 중인 글을 찾지 못했어요.")
+    normalizeDraftUsage(restored)
     if ((restored as unknown as { step: string }).step === "mask") restored.step = "organize"
     for (const image of restored.images) {
       const blob = await services.repository.getImageBlob(image.editedBlobId)
@@ -262,7 +296,8 @@ export const useStudioStore = defineStore("studio", () => {
         if (!blob) throw new Error("사진 분석용 이미지를 찾지 못했어요. 사진을 다시 선택해 주세요.")
         return { id, isCover, sortOrder, dataUrl: await services.prepareAnalysisImage(blob) }
       }))
-      current.brief = await services.ai.analyzeImages({
+      const result = normalizeAIResult(await services.ai.analyzeImages({
+        draftId: current.id,
         memo: current.sourceMemo,
         mustInclude: current.mustInclude,
         avoid: current.avoid,
@@ -270,9 +305,11 @@ export const useStudioStore = defineStore("studio", () => {
         naverTone: current.naverTone,
         instagramTone: current.instagramTone,
         images
-      })
+      }))
+      current.brief = result.data
       current.briefConfirmed = false
       current.step = "brief"
+      current.usage = addUsage(current.usage, result.usage)
       current.updatedAt = new Date().toISOString()
       await saveNow()
       return current.brief
@@ -319,6 +356,7 @@ export const useStudioStore = defineStore("studio", () => {
       }
 
       const input = {
+        draftId: current.id,
         memo: current.sourceMemo,
         mustInclude: current.mustInclude,
         avoid: current.avoid,
@@ -337,12 +375,20 @@ export const useStudioStore = defineStore("studio", () => {
         services.ai.generateInstagram(input)
       ])
 
-      current.naver = naver.status === "fulfilled"
-        ? { status: "success", data: naver.value, error: null }
-        : { status: "error", data: current.naver.data, error: errorMessage(naver.reason) }
-      current.instagram = instagram.status === "fulfilled"
-        ? { status: "success", data: instagram.value, error: null }
-        : { status: "error", data: current.instagram.data, error: errorMessage(instagram.reason) }
+      if (naver.status === "fulfilled") {
+        const result = normalizeAIResult(naver.value)
+        current.naver = { status: "success", data: result.data, error: null }
+        current.usage = addUsage(current.usage, result.usage)
+      } else {
+        current.naver = { status: "error", data: current.naver.data, error: errorMessage(naver.reason) }
+      }
+      if (instagram.status === "fulfilled") {
+        const result = normalizeAIResult(instagram.value)
+        current.instagram = { status: "success", data: result.data, error: null }
+        current.usage = addUsage(current.usage, result.usage)
+      } else {
+        current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(instagram.reason) }
+      }
       current.step = "results"
       await refreshReview(current)
       current.updatedAt = new Date().toISOString()
@@ -358,8 +404,15 @@ export const useStudioStore = defineStore("studio", () => {
       if (channel === "naver") current.naver = { status: "loading", data: current.naver.data, error: null }
       else current.instagram = { status: "loading", data: current.instagram.data, error: null }
       try {
-        if (channel === "naver") current.naver = { status: "success", data: await services.ai.generateNaver(input), error: null }
-        else current.instagram = { status: "success", data: await services.ai.generateInstagram(input), error: null }
+        if (channel === "naver") {
+          const result = normalizeAIResult(await services.ai.generateNaver(input))
+          current.naver = { status: "success", data: result.data, error: null }
+          current.usage = addUsage(current.usage, result.usage)
+        } else {
+          const result = normalizeAIResult(await services.ai.generateInstagram(input))
+          current.instagram = { status: "success", data: result.data, error: null }
+          current.usage = addUsage(current.usage, result.usage)
+        }
       } catch (error) {
         if (channel === "naver") current.naver = { status: "error", data: current.naver.data, error: errorMessage(error) }
         else current.instagram = { status: "error", data: current.instagram.data, error: errorMessage(error) }
@@ -377,6 +430,7 @@ export const useStudioStore = defineStore("studio", () => {
         naver: snapshotValue(current.naver),
         instagram: snapshotValue(current.instagram),
         review: current.review ? snapshotValue(current.review) : null,
+        usage: snapshotValue(current.usage),
         updatedAt: current.updatedAt
       }
 
@@ -386,7 +440,8 @@ export const useStudioStore = defineStore("studio", () => {
           if (!output) throw new Error("먼저 네이버 콘텐츠를 생성해 주세요.")
           const currentTitle = output.titles[0] ?? ""
           const currentBody = output.body
-          const rewritten = await services.ai.rewriteNaverTitleAndBody({
+          const result = normalizeAIResult(await services.ai.rewriteNaverTitleAndBody({
+            draftId: current.id,
             currentTitle,
             currentBody,
             instruction: request.instruction,
@@ -394,12 +449,14 @@ export const useStudioStore = defineStore("studio", () => {
             photoContext: rewritePhotoContext(current),
             avoid: current.avoid,
             tone: current.naverTone,
-          })
+          }))
+          const rewritten = result.data
           validateTitleAndBodyCandidate(rewritten, currentTitle, currentBody, current.avoid)
           output.titles[0] = rewritten.title.trim()
           output.body = rewritten.body.trim()
           await refreshReview(current)
           assertNoNewMedicalClaims(before.review, current.review)
+          current.usage = addUsage(current.usage, result.usage)
           current.updatedAt = new Date().toISOString()
           await persistNow()
           return { section: "titleAndBody" as const, title: output.titles[0], body: output.body, text: output.body }
@@ -408,12 +465,14 @@ export const useStudioStore = defineStore("studio", () => {
         const currentText = sectionText(current, request.channel, request.section)
         const input: RewriteInput = {
           ...request,
+          draftId: current.id,
           currentText,
           memo: current.sourceMemo,
           avoid: current.avoid,
           tone: request.channel === "naver" ? current.naverTone : current.instagramTone
         }
-        const rewritten = await services.ai.rewriteSection(input)
+        const result = normalizeAIResult(await services.ai.rewriteSection(input))
+        const rewritten = result.data
         validateRewriteCandidate(rewritten, currentText, request, current.avoid)
         applyRewrite(current, request.channel, request.section, rewritten.text)
         const visibleRewrite: RewriteOutput = {
@@ -423,6 +482,7 @@ export const useStudioStore = defineStore("studio", () => {
         await refreshReview(current)
 
         assertNoNewMedicalClaims(before.review, current.review)
+        current.usage = addUsage(current.usage, result.usage)
 
         current.updatedAt = new Date().toISOString()
         await persistNow()
@@ -431,6 +491,7 @@ export const useStudioStore = defineStore("studio", () => {
         current.naver = before.naver
         current.instagram = before.instagram
         current.review = before.review
+        current.usage = before.usage
         current.updatedAt = before.updatedAt
         throw error
       }
@@ -495,6 +556,20 @@ export const useStudioStore = defineStore("studio", () => {
     })
   }
 
+  function goToCompletedStep(target: WorkflowStep) {
+    return enqueueResultMutation(async () => {
+      if (target === "generating" || draft.value?.step === "generating") {
+        throw new Error("생성 중 단계로는 이동할 수 없어요.")
+      }
+      if (!draft.value || busy.value || !canGoToPriorStep(draft.value.step, target)) {
+        throw new Error("완료한 이전 단계로만 이동할 수 있어요.")
+      }
+      draft.value.step = target
+      draft.value.updatedAt = new Date().toISOString()
+      await persistNow()
+    })
+  }
+
   async function discard() {
     if (!draft.value) return
     await services.repository.deleteDraft(draft.value.id)
@@ -502,15 +577,76 @@ export const useStudioStore = defineStore("studio", () => {
   }
 
   return {
-    draft, drafts, history, saveStatus, lastSavedAt, busy,
-    create, loadHome, deleteHistory, clearHistory, load, saveNow, addFiles, completePhotoSelection, retryImage,
+    draft, drafts, history, projectUsage, saveStatus, lastSavedAt, busy,
+    create, loadHome, loadUsageSummary, deleteHistory, clearHistory, deleteDraft, load, saveNow, addFiles, completePhotoSelection, retryImage,
     reorder, chooseCover, removeImage, updateMemo, analyze, updateBrief, confirmBrief,
-    generateAll, retryChannel, rewrite, editResult, selectOption, copy, finalize, discard
+    generateAll, retryChannel, rewrite, editResult, selectOption, copy, finalize, goToCompletedStep, discard
   }
 })
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "생성 중 알 수 없는 오류가 발생했어요."
+}
+
+function emptyUsage(): DraftUsage {
+  return {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    estimatedKrw: 0,
+    requestCount: 0,
+  }
+}
+
+function isDraftUsage(value: unknown): value is DraftUsage {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  const usage = value as Record<string, unknown>
+  return [
+    usage.inputTokens,
+    usage.cachedInputTokens,
+    usage.outputTokens,
+    usage.totalTokens,
+    usage.estimatedKrw,
+    usage.requestCount,
+  ].every((entry) => typeof entry === "number" && Number.isSafeInteger(entry) && entry >= 0)
+    && (usage.cachedInputTokens as number) <= (usage.inputTokens as number)
+    && usage.totalTokens === (usage.inputTokens as number) + (usage.outputTokens as number)
+}
+
+function normalizeDraftUsage(draft: StudioDraft): StudioDraft {
+  if (!isDraftUsage((draft as { usage?: unknown }).usage)) draft.usage = emptyUsage()
+  return draft
+}
+
+function addUsage(current: DraftUsage, next: DraftUsage | null): DraftUsage {
+  if (!next) return current
+  const inputTokens = current.inputTokens + next.inputTokens
+  const outputTokens = current.outputTokens + next.outputTokens
+  return {
+    inputTokens,
+    cachedInputTokens: current.cachedInputTokens + next.cachedInputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedKrw: current.estimatedKrw + next.estimatedKrw,
+    requestCount: current.requestCount + next.requestCount,
+  }
+}
+
+function normalizeAIResult<T>(value: AIResult<T> | T): AIResult<T> {
+  const candidate = value as unknown
+  if (typeof candidate === "object" && candidate !== null
+    && Object.hasOwn(candidate, "data") && Object.hasOwn(candidate, "usage")) {
+    return candidate as AIResult<T>
+  }
+  return { data: candidate as T, usage: null }
+}
+
+const stableSteps: readonly WorkflowStep[] = ["photos", "organize", "memo", "brief", "results"]
+
+function canGoToPriorStep(current: WorkflowStep, target: WorkflowStep): boolean {
+  if (current === "generating" || target === "generating") return false
+  return stableSteps.indexOf(target) >= 0 && stableSteps.indexOf(target) < stableSteps.indexOf(current)
 }
 
 function snapshotValue<T>(value: T): T {
@@ -531,6 +667,7 @@ function deepToRaw<T>(value: T): T {
 function channelInput(current: StudioDraft) {
   if (!current.brief) throw new Error("공통 콘텐츠 브리프가 없어요.")
   return {
+    draftId: current.id,
     memo: current.sourceMemo,
     mustInclude: current.mustInclude,
     avoid: current.avoid,
