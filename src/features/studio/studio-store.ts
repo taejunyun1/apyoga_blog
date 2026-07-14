@@ -17,6 +17,8 @@ export interface StudioRepository {
   cleanupExpired(now: string): Promise<{ drafts: number; images: number }>
   finalize(draft: StudioDraft): Promise<void>
   listHistory(): Promise<StudioDraft[]>
+  deleteHistory(id: string): Promise<void>
+  clearHistory(): Promise<void>
   deleteDraft(id: string): Promise<void>
   deleteImage(id: string): Promise<void>
 }
@@ -112,6 +114,16 @@ export const useStudioStore = defineStore("studio", () => {
     await services.repository.cleanupExpired(now)
     drafts.value = await services.repository.listDrafts()
     history.value = await services.repository.listHistory()
+  }
+
+  async function deleteHistory(id: string) {
+    await services.repository.deleteHistory(id)
+    history.value = history.value.filter((item) => item.id !== id)
+  }
+
+  async function clearHistory() {
+    await services.repository.clearHistory()
+    history.value = []
   }
 
   async function load(id: string) {
@@ -465,7 +477,7 @@ export const useStudioStore = defineStore("studio", () => {
 
   return {
     draft, drafts, history, saveStatus, lastSavedAt, busy,
-    create, loadHome, load, saveNow, addFiles, completePhotoSelection, retryImage,
+    create, loadHome, deleteHistory, clearHistory, load, saveNow, addFiles, completePhotoSelection, retryImage,
     reorder, chooseCover, removeImage, updateMemo, analyze, updateBrief, confirmBrief,
     generateAll, retryChannel, rewrite, editResult, selectOption, copy, finalize, discard
   }

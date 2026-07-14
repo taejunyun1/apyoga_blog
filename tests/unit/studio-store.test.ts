@@ -64,6 +64,68 @@ describe("studio workflow store", () => {
     expect(repository.saveCalls).toBe(1)
   })
 
+  it("removes one history item after repository deletion succeeds", async () => {
+    const repository = new InMemoryRepository()
+    const completed = { ...createDraft(), finalizedAt: "2026-07-14T01:00:00.000Z" }
+    repository.drafts.set(completed.id, completed)
+    repository.history.set(completed.id, completed)
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    await store.loadHome()
+
+    await store.deleteHistory(completed.id)
+
+    expect(store.history).toEqual([])
+    expect(repository.history.has(completed.id)).toBe(false)
+    expect(repository.drafts.has(completed.id)).toBe(false)
+  })
+
+  it("keeps history visible when repository deletion fails", async () => {
+    const repository = new InMemoryRepository()
+    const completed = { ...createDraft(), finalizedAt: "2026-07-14T01:00:00.000Z" }
+    repository.history.set(completed.id, completed)
+    vi.spyOn(repository, "deleteHistory").mockRejectedValue(new Error("삭제 실패"))
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    await store.loadHome()
+
+    await expect(store.deleteHistory(completed.id)).rejects.toThrow("삭제 실패")
+
+    expect(store.history).toHaveLength(1)
+  })
+
+  it("clears all completed history after repository deletion succeeds", async () => {
+    const repository = new InMemoryRepository()
+    const first = { ...createDraft("2026-07-14T00:00:00.000Z"), finalizedAt: "2026-07-14T01:00:00.000Z" }
+    const second = { ...createDraft("2026-07-14T02:00:00.000Z"), finalizedAt: "2026-07-14T03:00:00.000Z" }
+    repository.history.set(first.id, first)
+    repository.history.set(second.id, second)
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    await store.loadHome()
+
+    await store.clearHistory()
+
+    expect(store.history).toEqual([])
+    expect(repository.history.size).toBe(0)
+  })
+
+  it("keeps every history item visible when clearing the repository fails", async () => {
+    const repository = new InMemoryRepository()
+    const first = { ...createDraft("2026-07-14T00:00:00.000Z"), finalizedAt: "2026-07-14T01:00:00.000Z" }
+    const second = { ...createDraft("2026-07-14T02:00:00.000Z"), finalizedAt: "2026-07-14T03:00:00.000Z" }
+    repository.history.set(first.id, first)
+    repository.history.set(second.id, second)
+    vi.spyOn(repository, "clearHistory").mockRejectedValue(new Error("전체 삭제 실패"))
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    await store.loadHome()
+
+    await expect(store.clearHistory()).rejects.toThrow("전체 삭제 실패")
+
+    expect(store.history).toHaveLength(2)
+  })
+
   it("moves a legacy face-mask draft to photo ordering when restored", async () => {
     const repository = new InMemoryRepository()
     const legacy = { ...createDraft(), step: "mask", images: studioImages(1) } as unknown as ReturnType<typeof createDraft>
