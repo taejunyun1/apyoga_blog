@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
-import type { ContentBrief } from "@/domain/studio"
+import { computed, ref, watch } from "vue"
+import type { ContentBrief, StudioImage } from "@/domain/studio"
 
-const props = defineProps<{ brief: ContentBrief; confirmed: boolean; busy: boolean }>()
+const props = defineProps<{ brief: ContentBrief; images: StudioImage[]; confirmed: boolean; busy: boolean }>()
 const emit = defineEmits<{ "update:brief": [brief: ContentBrief]; confirm: []; generate: [] }>()
 const local = ref<ContentBrief>(clone(props.brief))
 const locallyConfirmed = ref(props.confirmed)
 const newFocus = ref("")
+const analyzedImages = computed(() => props.brief.imageDescriptions.map((analysis, index) => ({
+  ...analysis,
+  image: props.images.find((image) => image.id === analysis.imageId),
+  index
+})))
 
 watch(() => props.brief, (value) => { local.value = clone(value) }, { deep: true })
 watch(() => props.confirmed, (value) => { locallyConfirmed.value = value })
@@ -44,6 +49,20 @@ function clone(value: ContentBrief): ContentBrief {
     <div class="field-label"><span>신체 초점</span><div class="chip-list"><button v-for="focus in local.bodyFocus" :key="focus" type="button" :aria-label="`${focus} 삭제`" @click="update((brief) => brief.bodyFocus = brief.bodyFocus.filter((item) => item !== focus))">{{ focus }} ×</button></div></div>
     <form class="inline-add" @submit.prevent="addFocus"><label class="visually-hidden" for="new-focus">신체 초점 추가</label><input id="new-focus" v-model="newFocus" type="text" placeholder="항목 추가" /><button type="submit">추가</button></form>
     <div class="field-label"><span>시각 키워드</span><div class="chip-list"><button v-for="keyword in local.visualKeywords" :key="keyword" type="button" :aria-label="`${keyword} 삭제`" @click="update((brief) => brief.visualKeywords = brief.visualKeywords.filter((item) => item !== keyword))">{{ keyword }} ×</button></div></div>
+    <section v-if="analyzedImages.length" class="photo-analysis" aria-labelledby="photo-analysis-heading">
+      <h3 id="photo-analysis-heading">사진에서 확인한 내용</h3>
+      <p>사진과 설명이 맞는지 확인해 주세요. 이 내용을 바탕으로 글을 작성합니다.</p>
+      <ol class="photo-analysis__list">
+        <li v-for="entry in analyzedImages" :key="entry.imageId">
+          <img v-if="entry.image" :src="entry.image.thumbnailUrl" :alt="`${entry.index + 1}번째 사진 ${entry.image.name}`" />
+          <div v-else class="photo-analysis__missing">사진 없음</div>
+          <div>
+            <strong>{{ entry.index + 1 }}번째 사진</strong>
+            <p>{{ entry.description }}</p>
+          </div>
+        </li>
+      </ol>
+    </section>
     <p class="season-note">{{ local.seasonalContext }}</p>
     <button v-if="!locallyConfirmed" class="secondary-action" type="button" @click="confirm">이해한 내용이 맞아요</button>
     <p v-else class="confirmation-note">✓ 이해 내용 확인 완료</p>

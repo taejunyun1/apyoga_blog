@@ -19,7 +19,7 @@ function selectFiles(event: Event) {
     <div class="section-heading-row">
       <div>
         <h2 id="photo-upload-heading" class="screen-heading">수련 사진을 선택해 주세요</h2>
-        <p>원본은 저장하지 않고 편집한 사진만 브라우저에 보관해요.</p>
+        <p>원본은 저장하지 않으며, 메타데이터를 제거한 축소 사진만 AI 분석에 사용해요.</p>
       </div>
       <span>{{ images.length }} / 최대 10장</span>
     </div>

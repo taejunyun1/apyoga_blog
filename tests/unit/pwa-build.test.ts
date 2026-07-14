@@ -22,7 +22,7 @@ describe("PWA production build", () => {
     expect(authClientSource).toContain('cache: "no-store"')
   })
 
-  it("builds while keeping optional MediaPipe WASM outside the precache", () => {
+  it("builds without the removed face-detection runtime", () => {
     execFileSync("npm", ["run", "build"], { cwd: process.cwd(), stdio: "pipe" })
 
     const dist = path.join(root, "dist")
@@ -30,7 +30,7 @@ describe("PWA production build", () => {
     const routes = path.join(dist, "_routes.json")
 
     expect(existsSync(serviceWorker)).toBe(true)
-    expect(existsSync(path.join(dist, "mediapipe/vision_wasm_internal.wasm"))).toBe(true)
+    expect(existsSync(path.join(dist, "mediapipe/vision_wasm_internal.wasm"))).toBe(false)
     expect(existsSync(routes)).toBe(true)
     expect(JSON.parse(readFileSync(routes, "utf8")).include).toContain("/api/*")
     expect(readFileSync(serviceWorker, "utf8")).not.toContain("/api/auth")

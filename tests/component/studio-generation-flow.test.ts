@@ -73,7 +73,7 @@ async function renderReadyResults(options: { instagramError?: boolean } = {}) {
   const store = useStudioStore()
   const draft = createDraft()
   draft.sourceMemo = "어깨와 흉곽을 천천히 열어간 차분한 저녁 수련"
-  draft.images = studioImages(1).map((image) => ({ ...image, maskConfirmedAt: "2026-07-11T00:05:00.000Z" }))
+  draft.images = studioImages(1)
   draft.brief = await ai.analyzeImages({
     memo: draft.sourceMemo,
     mustInclude: "호흡",
@@ -191,15 +191,20 @@ describe("studio generation flow", () => {
   it("moves from memo through brief confirmation to two channel results", async () => {
     const repository = new ToggleFailRepository()
     const ai = new ControlledRewriteProvider()
-    configureStudioServices({ repository, ai })
+    configureStudioServices({
+      repository,
+      ai,
+      prepareAnalysisImage: async () => "data:image/jpeg;base64,cGhvdG8="
+    })
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useStudioStore()
     const draft = createDraft()
     draft.step = "memo"
-    draft.images = studioImages(1).map((image) => ({ ...image, maskConfirmedAt: "2026-07-11T00:05:00.000Z" }))
+    draft.images = studioImages(1)
     store.draft = draft
     repository.drafts.set(draft.id, draft)
+    repository.images.set(draft.images[0].editedBlobId, new Blob(["photo pixels"], { type: "image/jpeg" }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/studio/:draftId", component: StudioView }] })
     await router.push(`/studio/${draft.id}`)
     await router.isReady()
@@ -209,7 +214,7 @@ describe("studio generation flow", () => {
     await fireEvent.click(screen.getByRole("button", { name: "AI 이해 내용 만들기" }))
     await waitFor(() => expect(screen.getByText("AI가 이해한 오늘의 수련")).toBeTruthy())
     await fireEvent.click(screen.getByRole("button", { name: "이해한 내용이 맞아요" }))
-    await fireEvent.click(screen.getByRole("button", { name: "두 채널 글 생성" }))
+    await fireEvent.click(await screen.findByRole("button", { name: "두 채널 글 생성" }))
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "네이버 블로그" })).toBeTruthy())
     await waitFor(() => expect(screen.getByText("두 채널 글을 생성했어요")).toBeTruthy())
@@ -269,7 +274,7 @@ describe("studio generation flow", () => {
     const draft = createDraft()
     draft.step = "brief"
     draft.sourceMemo = "호흡과 어깨를 살핀 수련"
-    draft.images = studioImages(1).map((image) => ({ ...image, maskConfirmedAt: "2026-07-11T00:05:00.000Z" }))
+    draft.images = studioImages(1)
     draft.brief = await ai.analyzeImages({
       memo: draft.sourceMemo,
       mustInclude: "호흡",

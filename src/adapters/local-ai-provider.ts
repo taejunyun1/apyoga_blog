@@ -63,14 +63,24 @@ function safeFocuses(input: ChannelInput): string[] {
   return [fallback]
 }
 
+function safeImageDescriptions(input: ChannelInput): Array<{ imageId: string; description: string }> {
+  return input.brief.imageDescriptions
+    .map(({ imageId, description }) => ({ imageId, description: sanitizeLocalFragment(description, input.avoid) }))
+    .filter(({ description }) => description.length >= 4 && isSafePublishableCopy([description], input.avoid))
+}
+
 function naverBody(input: ChannelInput, focus: string, required: string): string {
   const memo = sanitizeLocalFragment(input.memo, input.avoid)
     || safeAlternative(["오늘의 수련을 차분히 돌아보았습니다.", "함께한 움직임을 천천히 기록했습니다."], input.avoid)
+  const visualParagraphs = safeImageDescriptions(input).map(
+    ({ description }, index) => `${index + 1}번째 사진에는 ${description}이 담겼고, 그 장면에서 확인되는 구체적인 배치와 공간의 특징을 따라 수련의 흐름을 기록했습니다.`,
+  )
   const paragraphs = [
     `오늘은 ${focus}에 천천히 주의를 기울이며 수련을 시작했습니다. ${required}을 따라 서두르지 않고 몸과 마음이 현재에 도착할 시간을 충분히 두었습니다.`,
     `${memo}라는 기록을 바탕으로 각 동작의 크기보다 움직임이 이어지는 과정과 그 사이의 여백을 살펴보았습니다.`,
+    ...visualParagraphs,
     `숨을 들이쉴 때와 내쉴 때 달라지는 감각을 관찰하며 ${focus} 주변의 긴장을 억지로 밀어내지 않고 각자의 편안한 범위 안에서 움직였습니다.`,
-    "사진에 담긴 장면마다 완성된 모양보다 집중하는 표정과 안정된 리듬이 먼저 보였습니다. 서로의 속도를 존중하니 수련 공간도 한결 차분해졌습니다.",
+    "사진에 담긴 장면마다 공간의 구조와 빛, 소도구의 색과 배치가 다르게 보였습니다. 실제로 확인되는 요소만 따라가며 수련 공간의 흐름을 차분히 기록했습니다.",
     "수련이 깊어질수록 큰 변화보다 작고 분명한 신호를 알아차리는 일이 중요하다는 것을 다시 확인했습니다. 잠시 쉬는 선택도 오늘의 몸에 맞는 좋은 움직임이 될 수 있습니다.",
     "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요.",
     `호흡의 길이를 일부러 바꾸기보다 자연스럽게 이어지는 흐름을 지켜보았습니다. 들숨과 날숨 사이에 생기는 작은 쉼도 수련의 일부로 받아들였습니다.`,
@@ -142,10 +152,11 @@ export class LocalAIProvider implements AIProvider {
       `바쁜 하루 끝, ${required}에 잠시 머물렀습니다.`,
       `${focus}의 감각을 차분하게 살펴본 시간이었어요.`
     ].map((copy) => sanitizeLocalFragment(copy, input.avoid))
+    const descriptions = new Map(safeImageDescriptions(input).map((item) => [item.imageId, item.description]))
     const imagePlacements = input.brief.recommendedImageOrder.map((imageId, index) => ({
       imageId,
       afterParagraph: Math.min(index + 1, 3),
-      caption: sanitizeLocalFragment(`${focus}의 감각을 살펴보는 수련 장면`, input.avoid)
+      caption: descriptions.get(imageId) ?? sanitizeLocalFragment(`${focus}의 감각을 살펴보는 수련 장면`, input.avoid)
     }))
     const outputHashtags = hashtags(focuses, input.avoid)
     const classInfo = sanitizeLocalFragment("수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요.", input.avoid)
@@ -182,8 +193,11 @@ export class LocalAIProvider implements AIProvider {
     const focuses = safeFocuses(input)
     const focus = focuses.join("과 ")
     const required = requiredPhrase(input)
+    const photoRecord = safeImageDescriptions(input)
+      .map(({ description }, index) => `${index + 1}번째 사진에는 ${description}이 담겼습니다.`)
+      .join(" ")
     const captionLong = sanitizeLocalFragment(
-      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
+      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${photoRecord}\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
       input.avoid
     )
     const captionShort = sanitizeLocalFragment(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
@@ -220,8 +234,8 @@ export class LocalAIProvider implements AIProvider {
       }
       const rawAdditions = input.instruction.includes("사진 설명")
         ? [
-            "사진 속에서는 동작의 완성보다 시선이 머무는 방향과 손발이 바닥을 누르는 모습, 움직임 사이에 잠시 쉬어 가는 장면을 차분하게 살펴볼 수 있습니다.",
-            "각 장면에 담긴 손의 위치와 발의 간격, 호흡을 고르는 순간을 따라가며 수련의 흐름을 구체적으로 기록했습니다."
+            "각 사진에서 실제로 확인되는 공간의 구조와 빛, 소도구의 색과 배치를 중심으로 장면의 차이를 다시 살폈습니다.",
+            "사진별 설명에 적힌 시각 요소만 따라가며, 보이지 않는 인물이나 동작을 덧붙이지 않고 수련 공간의 흐름을 구체적으로 기록했습니다."
           ]
         : [
             "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다.",
@@ -281,9 +295,7 @@ export class LocalAIProvider implements AIProvider {
     }
   }
 
-  async review(input: { text: string; maskedFacesConfirmed: boolean }): Promise<ReviewOutput> {
-    const result = reviewText(input.text)
-    const privacyWarnings = input.maskedFacesConfirmed ? [] : ["얼굴 가림을 다시 확인해 주세요."]
-    return { ...result, privacyWarnings, passed: result.passed && privacyWarnings.length === 0 }
+  async review(input: { text: string }): Promise<ReviewOutput> {
+    return reviewText(input.text)
   }
 }

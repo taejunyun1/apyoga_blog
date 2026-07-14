@@ -2,6 +2,34 @@ export type ContentChannel = "naver" | "instagram"
 
 export type RewriteSection = "title" | "intro" | "body" | "hook" | "caption" | "short" | "hashtags"
 
+export interface AnalyzeImagesContentInput {
+  memo: string
+  mustInclude: string
+  avoid: string
+  writingMode: GenerateContentInput["writingMode"]
+  naverTone: GenerateContentInput["tone"]
+  instagramTone: GenerateContentInput["tone"]
+  images: Array<{
+    id: string
+    isCover: boolean
+    sortOrder: number
+    dataUrl: string
+  }>
+}
+
+export interface ImageAnalysisResult {
+  classSummary: string
+  overallMood: string
+  bodyFocus: string[]
+  visualKeywords: string[]
+  imageDescriptions: Array<{ imageId: string; description: string }>
+  recommendedCoverImageId: string
+  recommendedImageOrder: string[]
+  uncertainClaims: string[]
+  seasonalContext: string
+  userMemoSummary: string
+}
+
 export interface GenerateContentInput {
   memo: string
   mustInclude: string

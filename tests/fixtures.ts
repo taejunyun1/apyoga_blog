@@ -24,9 +24,6 @@ export function studioImages(count = 3): StudioImage[] {
     isCover: index === 0,
     status: "ready",
     error: null,
-    faceCount: index === 0 ? 2 : 0,
-    masks: [],
-    maskConfirmedAt: null,
     createdAt: "2026-07-11T00:00:00.000Z",
     expiresAt: "2026-07-16T00:00:00.000Z"
   }))

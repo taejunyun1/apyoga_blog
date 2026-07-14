@@ -4,7 +4,6 @@ import type { WorkflowStep } from "@/domain/studio"
 const props = defineProps<{ current: WorkflowStep }>()
 const steps: Array<{ id: WorkflowStep; label: string }> = [
   { id: "photos", label: "사진" },
-  { id: "mask", label: "가림" },
   { id: "organize", label: "순서" },
   { id: "memo", label: "메모" },
   { id: "brief", label: "확인" },

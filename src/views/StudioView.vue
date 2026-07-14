@@ -5,7 +5,6 @@ import LogoutButton from "@/features/auth/LogoutButton.vue"
 import BottomActionBar from "@/features/studio/BottomActionBar.vue"
 import ContentBriefReview from "@/features/studio/ContentBriefReview.vue"
 import ErrorBanner from "@/features/studio/ErrorBanner.vue"
-import FaceMaskEditor from "@/features/studio/FaceMaskEditor.vue"
 import GenerationProgress from "@/features/studio/GenerationProgress.vue"
 import MemoToneForm from "@/features/studio/MemoToneForm.vue"
 import PhotoOrganizer from "@/features/studio/PhotoOrganizer.vue"
@@ -15,13 +14,11 @@ import ResultEditor from "@/features/studio/ResultEditor.vue"
 import { rewriteActionKey, rewriteFeedbackFor, type RewritePreview } from "@/features/studio/rewrite-actions"
 import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
-import type { FaceMask } from "@/domain/studio"
 
 const route = useRoute()
 const router = useRouter()
 const store = useStudioStore()
 const error = ref<string | null>(null)
-const activeMaskIndex = ref(0)
 const copyFallback = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 const toastId = ref(0)
@@ -31,7 +28,6 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 const stopAutosave = useAutosave(store)
 
 const readyImages = computed(() => store.draft?.images.filter((image) => image.status === "ready") ?? [])
-const activeMaskImage = computed(() => readyImages.value[activeMaskIndex.value] ?? null)
 
 onMounted(async () => {
   const draftId = String(route.params.draftId)
@@ -65,17 +61,10 @@ async function run(action: () => Promise<unknown>, successMessage?: string) {
   }
 }
 
-function updateMasks(masks: FaceMask[]) {
-  if (activeMaskImage.value) store.updateMasks(activeMaskImage.value.id, masks)
-}
-
 async function finishCurrentStep() {
   if (!store.draft) return
   if (store.draft.step === "photos") {
-    await run(() => store.beginMasking())
-  } else if (store.draft.step === "mask") {
-    if (activeMaskIndex.value < readyImages.value.length - 1) activeMaskIndex.value += 1
-    else await run(() => store.confirmMasks())
+    await run(() => store.completePhotoSelection())
   } else if (store.draft.step === "organize") {
     store.draft.step = "memo"
     await run(() => store.saveNow())
@@ -183,12 +172,6 @@ async function finalizeResult() {
         @remove-image="run(() => store.removeImage($event))"
       />
 
-      <section v-else-if="store.draft.step === 'mask'" class="mask-step">
-        <p v-if="store.faceDetectionMessage" class="info-banner" role="status">{{ store.faceDetectionMessage }}</p>
-        <FaceMaskEditor v-if="activeMaskImage" :key="activeMaskImage.id" :image="activeMaskImage" @update-masks="updateMasks" />
-        <p v-else class="empty-row">가림을 편집할 사진이 없습니다.</p>
-      </section>
-
       <PhotoOrganizer
         v-else-if="store.draft.step === 'organize'"
         :images="store.draft.images"
@@ -211,6 +194,7 @@ async function finalizeResult() {
       <ContentBriefReview
         v-else-if="store.draft.step === 'brief' && store.draft.brief"
         :brief="store.draft.brief"
+        :images="store.draft.images"
         :confirmed="store.draft.briefConfirmed"
         :busy="store.busy"
         @update:brief="store.updateBrief"
@@ -241,17 +225,15 @@ async function finalizeResult() {
       <section v-else class="empty-row">다음 콘텐츠 단계가 준비되었습니다.</section>
     </div>
 
-    <BottomActionBar v-if="['photos', 'mask', 'organize'].includes(store.draft.step)">
+    <BottomActionBar v-if="['photos', 'organize'].includes(store.draft.step)">
       <button
         type="button"
         class="primary-action"
         :disabled="store.busy || (store.draft.step === 'photos' && readyImages.length === 0)"
         @click="finishCurrentStep"
       >
-        <template v-if="store.busy">얼굴 찾는 중…</template>
-        <template v-else-if="store.draft.step === 'photos'">얼굴 가림 확인</template>
-        <template v-else-if="store.draft.step === 'mask' && activeMaskIndex < readyImages.length - 1">다음 사진</template>
-        <template v-else-if="store.draft.step === 'mask'">가림 확인 완료</template>
+        <template v-if="store.busy">사진 준비 중…</template>
+        <template v-else-if="store.draft.step === 'photos'">사진 순서 정하기</template>
         <template v-else>메모 작성하기</template>
       </button>
     </BottomActionBar>

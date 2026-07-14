@@ -81,6 +81,7 @@ describe("Pages authentication middleware", () => {
   it.each([
     "/api/content/generate",
     "/api/content/rewrite",
+    "/api/content/analyze-images",
   ])("rejects the protected content API %s without a valid session", async (pathname) => {
     const next = vi.fn(async () => staticResponse())
 

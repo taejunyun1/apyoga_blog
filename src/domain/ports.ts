@@ -7,7 +7,7 @@ export interface AnalyzeImagesInput {
   writingMode: WritingMode
   naverTone: Tone
   instagramTone: Tone
-  images: Array<{ id: string; isCover: boolean; sortOrder: number }>
+  images: Array<{ id: string; isCover: boolean; sortOrder: number; dataUrl?: string }>
 }
 
 export interface ChannelInput extends AnalyzeImagesInput {
@@ -34,5 +34,5 @@ export interface AIProvider {
   generateNaver(input: ChannelInput): Promise<NaverOutput>
   generateInstagram(input: ChannelInput): Promise<InstagramOutput>
   rewriteSection(input: RewriteInput): Promise<RewriteOutput>
-  review(input: { text: string; maskedFacesConfirmed: boolean }): Promise<ReviewOutput>
+  review(input: { text: string }): Promise<ReviewOutput>
 }

@@ -2,13 +2,12 @@ import { defineStore } from "pinia"
 import { ref, toRaw } from "vue"
 import { BrowserClipboard } from "@/adapters/browser-clipboard"
 import { DexieStudioRepository, type EditedImageRecord } from "@/adapters/dexie-repository"
-import { applyMasksToBlob, prepareImage, validateImageSelection } from "@/adapters/image-processor"
+import { prepareAnalysisImage, prepareImage, validateImageSelection } from "@/adapters/image-processor"
 import { OpenAIProvider } from "@/adapters/openai-provider"
-import { MediaPipeFaceDetector, type DetectedFace } from "@/adapters/mediapipe-face-detector"
 import { countMedicalClaimOccurrences, forbiddenExpressions } from "@/domain/content-safety"
 import type { AIProvider, RewriteInput, RewriteOutput } from "@/domain/ports"
 import { reorderImages, setCoverImage } from "@/domain/rules"
-import { createDraft, type FaceMask, type StudioDraft, type StudioImage } from "@/domain/studio"
+import { createDraft, type StudioDraft, type StudioImage } from "@/domain/studio"
 
 export interface StudioRepository {
   saveDraft(draft: StudioDraft, images?: EditedImageRecord[]): Promise<void>
@@ -27,8 +26,7 @@ export interface StudioServices {
   ai: AIProvider
   clipboard: { copy(text: string): Promise<{ ok: boolean; error?: string }> }
   prepareImage: typeof prepareImage
-  applyMasks: typeof applyMasksToBlob
-  faceDetector: { detect(source: HTMLImageElement): Promise<DetectedFace[]>; lastDiagnostic: string | null }
+  prepareAnalysisImage: typeof prepareAnalysisImage
 }
 
 function defaultServices(): StudioServices {
@@ -37,8 +35,7 @@ function defaultServices(): StudioServices {
     ai: new OpenAIProvider(),
     clipboard: new BrowserClipboard(),
     prepareImage,
-    applyMasks: applyMasksToBlob,
-    faceDetector: new MediaPipeFaceDetector()
+    prepareAnalysisImage
   }
 }
 
@@ -75,7 +72,6 @@ export const useStudioStore = defineStore("studio", () => {
   const saveStatus = ref<"idle" | "saving" | "saved" | "error" | "restored">("idle")
   const lastSavedAt = ref<string | null>(null)
   const busy = ref(false)
-  const faceDetectionMessage = ref<string | null>(null)
   const transientFiles = new Map<string, File>()
   let resultMutationQueue: Promise<void> = Promise.resolve()
 
@@ -86,10 +82,7 @@ export const useStudioStore = defineStore("studio", () => {
   }
 
   async function refreshReview(current: StudioDraft) {
-    current.review = await services.ai.review({
-      text: publishableText(current),
-      maskedFacesConfirmed: current.images.every((image) => Boolean(image.maskConfirmedAt))
-    })
+    current.review = await services.ai.review({ text: publishableText(current) })
   }
 
   async function persistNow() {
@@ -124,6 +117,7 @@ export const useStudioStore = defineStore("studio", () => {
   async function load(id: string) {
     const restored = await services.repository.getDraft(id)
     if (!restored) throw new Error("작성 중인 글을 찾지 못했어요.")
+    if ((restored as unknown as { step: string }).step === "mask") restored.step = "organize"
     for (const image of restored.images) {
       const blob = await services.repository.getImageBlob(image.editedBlobId)
       if (blob && typeof URL.createObjectURL === "function") image.thumbnailUrl = URL.createObjectURL(blob)
@@ -151,9 +145,6 @@ export const useStudioStore = defineStore("studio", () => {
         isCover: false,
         status: "processing",
         error: null,
-        faceCount: 0,
-        masks: [],
-        maskConfirmedAt: null,
         createdAt: new Date().toISOString(),
         expiresAt: new Date().toISOString()
       }
@@ -193,39 +184,13 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
-  async function beginMasking() {
+  async function completePhotoSelection(now = new Date().toISOString()) {
     if (!draft.value || !draft.value.images.some((image) => image.status === "ready")) {
       throw new Error("처리 완료된 사진을 한 장 이상 준비해 주세요.")
     }
-    busy.value = true
-    faceDetectionMessage.value = null
-    draft.value.step = "mask"
-    try {
-      for (const studioImage of draft.value.images.filter((image) => image.status === "ready" && image.masks.length === 0)) {
-        const element = new Image()
-        element.src = studioImage.thumbnailUrl
-        if (typeof element.decode === "function") await element.decode().catch(() => undefined)
-        const detected = await services.faceDetector.detect(element)
-        studioImage.faceCount = detected.length
-        studioImage.masks = detected.map((face) => ({
-          id: crypto.randomUUID(),
-          style: "blur",
-          x: face.x,
-          y: face.y,
-          width: face.width,
-          height: face.height,
-          rotation: 0,
-          source: "detected"
-        }))
-      }
-      const detectedCount = draft.value.images.reduce((sum, image) => sum + image.faceCount, 0)
-      faceDetectionMessage.value = detectedCount > 0
-        ? `얼굴 ${detectedCount}개를 찾았어요. 가림 위치를 직접 확인해 주세요.`
-        : "자동 감지 결과가 없어요. 필요하면 수동으로 얼굴을 추가해 주세요."
-      await saveNow()
-    } finally {
-      busy.value = false
-    }
+    draft.value.step = "organize"
+    draft.value.updatedAt = now
+    await saveNow()
   }
 
   async function retryImage(imageId: string) {
@@ -249,27 +214,6 @@ export const useStudioStore = defineStore("studio", () => {
     await saveNow()
   }
 
-  function updateMasks(imageId: string, masks: FaceMask[]) {
-    const image = draft.value?.images.find((item) => item.id === imageId)
-    if (!image) return
-    image.masks = JSON.parse(JSON.stringify(masks)) as FaceMask[]
-    image.maskConfirmedAt = null
-  }
-
-  async function confirmMasks(now = new Date().toISOString()) {
-    if (!draft.value) throw new Error("작성 중인 글이 없어요.")
-    for (const image of draft.value.images.filter((item) => item.status === "ready")) {
-      const source = await services.repository.getImageBlob(image.editedBlobId)
-      if (!source) throw new Error(`${image.name} 편집본을 찾지 못했어요.`)
-      const masked = await services.applyMasks(source, image.masks)
-      await services.repository.saveDraft(draft.value, [{ id: image.editedBlobId, draftId: draft.value.id, blob: masked, expiresAt: image.expiresAt }])
-      image.maskConfirmedAt = now
-    }
-    draft.value.step = "organize"
-    draft.value.updatedAt = now
-    await saveNow()
-  }
-
   function updateMemo(value: { memo: string; mustInclude: string; avoid: string; writingMode: StudioDraft["writingMode"]; naverTone: StudioDraft["naverTone"]; instagramTone: StudioDraft["instagramTone"] }) {
     if (!draft.value) return
     draft.value.sourceMemo = value.memo
@@ -290,20 +234,34 @@ export const useStudioStore = defineStore("studio", () => {
       return draft.value.brief
     }
     const current = draft.value
-    current.brief = await services.ai.analyzeImages({
-      memo: current.sourceMemo,
-      mustInclude: current.mustInclude,
-      avoid: current.avoid,
-      writingMode: current.writingMode,
-      naverTone: current.naverTone,
-      instagramTone: current.instagramTone,
-      images: current.images.map(({ id, isCover, sortOrder }) => ({ id, isCover, sortOrder }))
-    })
-    current.briefConfirmed = false
-    current.step = "brief"
-    current.updatedAt = new Date().toISOString()
-    await saveNow()
-    return current.brief
+    const readyImages = [...current.images]
+      .filter((image) => image.status === "ready")
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    if (!readyImages.length) throw new Error("분석할 사진을 한 장 이상 준비해 주세요.")
+    busy.value = true
+    try {
+      const images = await Promise.all(readyImages.map(async ({ id, editedBlobId, isCover, sortOrder }) => {
+        const blob = await services.repository.getImageBlob(editedBlobId)
+        if (!blob) throw new Error("사진 분석용 이미지를 찾지 못했어요. 사진을 다시 선택해 주세요.")
+        return { id, isCover, sortOrder, dataUrl: await services.prepareAnalysisImage(blob) }
+      }))
+      current.brief = await services.ai.analyzeImages({
+        memo: current.sourceMemo,
+        mustInclude: current.mustInclude,
+        avoid: current.avoid,
+        writingMode: current.writingMode,
+        naverTone: current.naverTone,
+        instagramTone: current.instagramTone,
+        images
+      })
+      current.briefConfirmed = false
+      current.step = "brief"
+      current.updatedAt = new Date().toISOString()
+      await saveNow()
+      return current.brief
+    } finally {
+      busy.value = false
+    }
   }
 
   function updateBrief(value: NonNullable<StudioDraft["brief"]>) {
@@ -506,8 +464,8 @@ export const useStudioStore = defineStore("studio", () => {
   }
 
   return {
-    draft, drafts, history, saveStatus, lastSavedAt, busy, faceDetectionMessage,
-    create, loadHome, load, saveNow, addFiles, beginMasking, retryImage, updateMasks, confirmMasks,
+    draft, drafts, history, saveStatus, lastSavedAt, busy,
+    create, loadHome, load, saveNow, addFiles, completePhotoSelection, retryImage,
     reorder, chooseCover, removeImage, updateMemo, analyze, updateBrief, confirmBrief,
     generateAll, retryChannel, rewrite, editResult, selectOption, copy, finalize, discard
   }

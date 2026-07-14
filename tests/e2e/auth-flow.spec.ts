@@ -4,15 +4,34 @@ import path from "node:path"
 const fixturePhoto = path.resolve("public/icons/app-icon-512.png")
 
 async function createTwoChannelPost(page: Page) {
+  await page.route("**/api/content/analyze-images", async (route) => {
+    const request = route.request().postDataJSON() as { memo: string; images: Array<{ id: string; sortOrder: number }> }
+    const ids = request.images.sort((a, b) => a.sortOrder - b.sortOrder).map((image) => image.id)
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        source: "openai",
+        data: {
+          classSummary: request.memo,
+          overallMood: "갈색 원형 로고가 보이는 차분한 장면",
+          bodyFocus: ["원형", "로고"],
+          visualKeywords: ["갈색", "원형", "로고"],
+          imageDescriptions: ids.map((imageId) => ({ imageId, description: "갈색 배경 위에 밝은 원형 로고와 작은 글자가 보이는 이미지" })),
+          recommendedCoverImageId: ids[0],
+          recommendedImageOrder: ids,
+          uncertainClaims: [],
+          seasonalContext: "",
+          userMemoSummary: request.memo
+        }
+      })
+    })
+  })
   await page.getByRole("button", { name: "새 글 만들기" }).click()
   await page.getByLabel("수련 사진 선택").setInputFiles([fixturePhoto, fixturePhoto])
   await expect(page.getByText("처리 완료")).toHaveCount(2)
 
-  await page.getByRole("button", { name: "얼굴 가림 확인" }).click()
-  await expect(page.getByText("자동 감지 결과가 없어요. 필요하면 수동으로 얼굴을 추가해 주세요.")).toBeVisible()
-  await page.getByRole("button", { name: "얼굴 추가" }).click()
-  await page.getByRole("button", { name: "다음 사진" }).click()
-  await page.getByRole("button", { name: "가림 확인 완료" }).click()
+  await page.getByRole("button", { name: "사진 순서 정하기" }).click()
 
   await expect(page.getByRole("heading", { name: "사진 순서와 대표 사진" })).toBeVisible()
   await page.getByRole("button", { name: "메모 작성하기" }).click()

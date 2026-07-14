@@ -1,7 +1,7 @@
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
 import { isSafePublishableCopy } from "@/domain/content-safety"
 import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
-import type { Channel, InstagramOutput, NaverOutput } from "@/domain/studio"
+import type { Channel, ContentBrief, InstagramOutput, NaverOutput } from "@/domain/studio"
 
 type RemoteNaver = Omit<NaverOutput, "generationSource" | "qualityChecks">
 type RemoteInstagram = Omit<InstagramOutput, "generationSource" | "qualityChecks">
@@ -104,7 +104,35 @@ export class OpenAIProvider implements AIProvider {
   }
 
   analyzeImages(input: AnalyzeImagesInput) {
-    return this.local.analyzeImages(input)
+    return this.analyzeRemotely(input)
+  }
+
+  private async analyzeRemotely(input: AnalyzeImagesInput) {
+    if (input.images.some((image) => typeof image.dataUrl !== "string" || !image.dataUrl.startsWith("data:image/jpeg;base64,"))) {
+      throw new Error("사진 분석용 이미지를 준비하지 못했어요.")
+    }
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/analyze-images", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toImageAnalysisInput(input)),
+      })
+    } catch {
+      throw new Error("사진 분석에 실패했어요. 잠시 후 다시 시도해 주세요.")
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) throw new Error("사진 분석에 실패했어요. 잠시 후 다시 시도해 주세요.")
+
+    const data = await readRemoteImageAnalysis(response, input)
+    if (!data) throw new Error("사진 분석 결과를 확인하지 못했어요. 다시 시도해 주세요.")
+    return data
   }
 
   async rewriteSection(input: RewriteInput): Promise<RewriteOutput> {
@@ -131,7 +159,7 @@ export class OpenAIProvider implements AIProvider {
     return remote ?? this.local.rewriteSection(input)
   }
 
-  review(input: { text: string; maskedFacesConfirmed: boolean }) {
+  review(input: { text: string }) {
     return this.local.review(input)
   }
 
@@ -210,6 +238,58 @@ async function readRemoteData(response: Response, channel: Channel): Promise<Rem
   return isRemoteInstagram(payload.data) ? payload.data : null
 }
 
+async function readRemoteImageAnalysis(response: Response, input: AnalyzeImagesInput): Promise<ContentBrief | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+  if (!hasExactKeys(payload, ["source", "data"])
+    || payload.source !== "openai"
+    || !isRemoteImageBrief(payload.data, input)) {
+    return null
+  }
+  return payload.data
+}
+
+function isRemoteImageBrief(value: unknown, input: AnalyzeImagesInput): value is ContentBrief {
+  if (!hasExactKeys(value, [
+    "classSummary", "overallMood", "bodyFocus", "visualKeywords", "imageDescriptions",
+    "recommendedCoverImageId", "recommendedImageOrder", "uncertainClaims", "seasonalContext", "userMemoSummary",
+  ])
+    || typeof value.classSummary !== "string"
+    || !value.classSummary.trim()
+    || typeof value.overallMood !== "string"
+    || !value.overallMood.trim()
+    || !isStringArray(value.bodyFocus)
+    || !isStringArray(value.visualKeywords)
+    || !Array.isArray(value.imageDescriptions)
+    || !value.imageDescriptions.every((description) => hasExactKeys(description, ["imageId", "description"])
+      && typeof description.imageId === "string"
+      && typeof description.description === "string"
+      && description.description.trim().length >= 12)
+    || typeof value.recommendedCoverImageId !== "string"
+    || !isStringArray(value.recommendedImageOrder)
+    || !Array.isArray(value.uncertainClaims)
+    || !value.uncertainClaims.every((claim) => typeof claim === "string")
+    || typeof value.seasonalContext !== "string"
+    || typeof value.userMemoSummary !== "string") {
+    return false
+  }
+  const ids = input.images.map((image) => image.id)
+  const descriptionIds = value.imageDescriptions.map((description) => description.imageId)
+  const recommendedImageOrder = value.recommendedImageOrder as string[]
+  const recommendedCoverImageId = value.recommendedCoverImageId as string
+  return ids.length === descriptionIds.length
+    && new Set(descriptionIds).size === ids.length
+    && ids.every((id) => descriptionIds.includes(id))
+    && ids.length === recommendedImageOrder.length
+    && new Set(recommendedImageOrder).size === ids.length
+    && ids.every((id) => recommendedImageOrder.includes(id))
+    && ids.includes(recommendedCoverImageId)
+}
+
 async function readRemoteRewrite(response: Response, input: RewriteInput): Promise<RewriteOutput | null> {
   let payload: unknown
   try {
@@ -248,6 +328,23 @@ function toRewriteInput(input: RewriteInput): RewriteInput {
     memo: input.memo,
     avoid: input.avoid,
     tone: input.tone,
+  }
+}
+
+function toImageAnalysisInput(input: AnalyzeImagesInput) {
+  return {
+    memo: input.memo,
+    mustInclude: input.mustInclude,
+    avoid: input.avoid,
+    writingMode: input.writingMode,
+    naverTone: input.naverTone,
+    instagramTone: input.instagramTone,
+    images: input.images.map((image) => ({
+      id: image.id,
+      isCover: image.isCover,
+      sortOrder: image.sortOrder,
+      dataUrl: image.dataUrl,
+    })),
   }
 }
 

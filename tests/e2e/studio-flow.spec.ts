@@ -6,7 +6,34 @@ const rewrittenIntro = "호흡과 감각을 담아 새롭게 바꾼 문구"
 const rewrittenBody = "호흡과 사진 속 수련 장면을 구체적으로 살핀 새 본문입니다. ".repeat(18)
 const persistedBody = rewrittenBody.trim()
 
+async function mockImageAnalysis(page: Page) {
+  await page.route("**/api/content/analyze-images", async (route) => {
+    const request = route.request().postDataJSON() as { memo: string; images: Array<{ id: string; sortOrder: number }> }
+    const ids = request.images.sort((a, b) => a.sortOrder - b.sortOrder).map((image) => image.id)
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        source: "openai",
+        data: {
+          classSummary: request.memo,
+          overallMood: "갈색 원형 로고가 보이는 차분한 장면",
+          bodyFocus: ["원형", "로고"],
+          visualKeywords: ["갈색", "원형", "로고"],
+          imageDescriptions: ids.map((imageId) => ({ imageId, description: "갈색 배경 위에 밝은 원형 로고와 작은 글자가 보이는 이미지" })),
+          recommendedCoverImageId: ids[0],
+          recommendedImageOrder: ids,
+          uncertainClaims: [],
+          seasonalContext: "",
+          userMemoSummary: request.memo
+        }
+      })
+    })
+  })
+}
+
 test("creates and restores a two-channel yoga post", async ({ page }, testInfo) => {
+  await mockImageAnalysis(page)
   await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
   await page.route("**/api/content/rewrite", async (route) => {
     const request = route.request().postDataJSON() as { section: string }
@@ -20,17 +47,14 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   await page.goto("/")
 
   await page.getByRole("button", { name: "새 글 만들기" }).click()
-  const disabledNextButton = page.getByRole("button", { name: "얼굴 가림 확인" })
+  const disabledNextButton = page.getByRole("button", { name: "사진 순서 정하기" })
   await expect(disabledNextButton).toBeDisabled()
   await expect(disabledNextButton).toHaveCSS("cursor", "not-allowed")
   await page.getByLabel("수련 사진 선택").setInputFiles([fixturePhoto, fixturePhoto])
   await expect(page.getByText("처리 완료")).toHaveCount(2)
 
-  await page.getByRole("button", { name: "얼굴 가림 확인" }).click()
-  await expect(page.getByText("자동 감지 결과가 없어요. 필요하면 수동으로 얼굴을 추가해 주세요.")).toBeVisible()
-  await page.getByRole("button", { name: "얼굴 추가" }).click()
-  await page.getByRole("button", { name: "다음 사진" }).click()
-  await page.getByRole("button", { name: "가림 확인 완료" }).click()
+  await page.getByRole("button", { name: "사진 순서 정하기" }).click()
+  await expect(page.getByText("가림")).toHaveCount(0)
 
   await expect(page.getByRole("heading", { name: "사진 순서와 대표 사진" })).toBeVisible()
   await page.getByRole("button", { name: "메모 작성하기" }).click()
@@ -40,6 +64,7 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
   await page.getByRole("button", { name: "AI 이해 내용 만들기" }).click()
 
   await expect(page.getByRole("heading", { name: "AI가 이해한 오늘의 수련" })).toBeVisible()
+  await expect(page.getByText(/갈색 배경 위에 밝은 원형 로고/).first()).toBeVisible()
   await page.getByRole("button", { name: "이해한 내용이 맞아요" }).click()
   await page.getByRole("button", { name: "두 채널 글 생성" }).click()
 

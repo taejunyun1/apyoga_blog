@@ -29,7 +29,7 @@ function readyDraft() {
     writingMode: analyzeInput.writingMode,
     naverTone: analyzeInput.naverTone,
     instagramTone: analyzeInput.instagramTone,
-    images: studioImages(2).map((image) => ({ ...image, maskConfirmedAt: "2026-07-11T00:05:00.000Z" })),
+    images: studioImages(2),
     brief,
     briefConfirmed: true
   }
@@ -62,6 +62,19 @@ describe("studio workflow store", () => {
 
     expect(draft.step).toBe("photos")
     expect(repository.saveCalls).toBe(1)
+  })
+
+  it("moves a legacy face-mask draft to photo ordering when restored", async () => {
+    const repository = new InMemoryRepository()
+    const legacy = { ...createDraft(), step: "mask", images: studioImages(1) } as unknown as ReturnType<typeof createDraft>
+    repository.drafts.set(legacy.id, legacy)
+    repository.images.set(legacy.images[0].editedBlobId, new Blob(["photo pixels"]))
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+
+    await store.load(legacy.id)
+
+    expect(store.draft?.step).toBe("organize")
   })
 
   it("preserves Naver when Instagram generation fails", async () => {
@@ -830,36 +843,43 @@ describe("studio workflow store", () => {
     expect([...repository.images.values()]).toEqual([editedBlob])
   })
 
-  it("burns masks into edited blobs before confirming the masking step", async () => {
+  it("advances prepared photos directly to ordering without changing image pixels", async () => {
     const repository = new InMemoryRepository()
-    const maskedBlob = new Blob(["masked pixels"], { type: "image/jpeg" })
-    const applyMasks = vi.fn().mockResolvedValue(maskedBlob)
-    configureStudioServices({ repository, applyMasks })
+    configureStudioServices({ repository })
     const store = useStudioStore()
     store.draft = { ...createDraft(), images: studioImages(1) }
-    store.draft.images[0].masks = [{ id: "mask-1", style: "blur", x: 0.1, y: 0.1, width: 0.2, height: 0.2, rotation: 0, source: "manual" }]
-    repository.images.set(store.draft.images[0].editedBlobId, new Blob(["prepared pixels"]))
+    const preparedBlob = new Blob(["prepared pixels"])
+    repository.images.set(store.draft.images[0].editedBlobId, preparedBlob)
 
-    await store.confirmMasks("2026-07-11T00:05:00.000Z")
+    await store.completePhotoSelection("2026-07-11T00:05:00.000Z")
 
-    expect(applyMasks).toHaveBeenCalledTimes(1)
-    expect(store.draft.images[0].maskConfirmedAt).toBe("2026-07-11T00:05:00.000Z")
     expect(store.draft.step).toBe("organize")
-    expect(repository.images.get(store.draft.images[0].editedBlobId)).toBe(maskedBlob)
+    expect(repository.images.get(store.draft.images[0].editedBlobId)).toBe(preparedBlob)
   })
 
   it("analyzes prepared images once and moves to brief review", async () => {
     const repository = new InMemoryRepository()
     const ai = new LocalAIProvider()
     const analyzeSpy = vi.spyOn(ai, "analyzeImages")
-    configureStudioServices({ repository, ai })
+    const prepareAnalysisImage = vi.fn()
+      .mockResolvedValueOnce("data:image/jpeg;base64,cGhvdG8x")
+      .mockResolvedValueOnce("data:image/jpeg;base64,cGhvdG8y")
+    configureStudioServices({ repository, ai, prepareAnalysisImage })
     const store = useStudioStore()
     store.draft = { ...readyDraft(), brief: null, briefConfirmed: false, step: "memo" }
+    for (const image of store.draft.images) repository.images.set(image.editedBlobId, new Blob([image.id]))
 
     await store.analyze()
     await store.analyze()
 
     expect(analyzeSpy).toHaveBeenCalledTimes(1)
+    expect(prepareAnalysisImage).toHaveBeenCalledTimes(2)
+    expect(analyzeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      images: [
+        expect.objectContaining({ id: "image-1", dataUrl: "data:image/jpeg;base64,cGhvdG8x" }),
+        expect.objectContaining({ id: "image-2", dataUrl: "data:image/jpeg;base64,cGhvdG8y" }),
+      ],
+    }))
     expect(store.draft.brief?.bodyFocus).toEqual(["어깨", "흉곽"])
     expect(store.draft.step).toBe("brief")
   })

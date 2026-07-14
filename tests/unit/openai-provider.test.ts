@@ -20,6 +20,14 @@ const brief: ContentBrief = {
 
 const channelInput: ChannelInput = { ...analyzeInput, brief }
 
+const analysisBrief: ContentBrief = {
+  ...brief,
+  imageDescriptions: [
+    { imageId: "image-1", description: "큰 창으로 햇살이 들어오는 요가원에서 매트 위에 서 있는 장면" },
+    { imageId: "image-2", description: "나무 바닥 위 매트 곁에서 두 팔을 길게 뻗은 장면" },
+  ],
+}
+
 const rewriteInput = {
   channel: "naver" as const,
   section: "intro",
@@ -53,6 +61,41 @@ function validInstagram() {
 }
 
 describe("OpenAIProvider", () => {
+  it("sends analysis-only image data to the remote vision endpoint", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ source: "openai", data: analysisBrief }))
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "analyzeImages")
+    const provider = new OpenAIProvider({ fetcher, local })
+    const input = {
+      ...analyzeInput,
+      images: analyzeInput.images.map((image, index) => ({
+        ...image,
+        dataUrl: `data:image/jpeg;base64,cGl4ZWxzLTI${index}=`,
+      })),
+    }
+
+    await expect(provider.analyzeImages(input)).resolves.toEqual(analysisBrief)
+    expect(fallback).not.toHaveBeenCalled()
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(fetcher.mock.calls[0][0]).toBe("/api/content/analyze-images")
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(input)
+  })
+
+  it("fails visibly instead of producing a generic local brief when vision analysis fails", async () => {
+    const local = new LocalAIProvider()
+    const fallback = vi.spyOn(local, "analyzeImages")
+    const provider = new OpenAIProvider({
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 502 })),
+      local,
+    })
+
+    await expect(provider.analyzeImages({
+      ...analyzeInput,
+      images: analyzeInput.images.map((image) => ({ ...image, dataUrl: "data:image/jpeg;base64,cGl4ZWxz" })),
+    })).rejects.toThrow("사진 분석")
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
   it("requests a remote rewrite without photo data", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
       source: "openai",

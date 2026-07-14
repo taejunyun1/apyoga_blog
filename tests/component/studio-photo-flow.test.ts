@@ -11,12 +11,9 @@ import { InMemoryRepository } from "../helpers/in-memory-repository"
 afterEach(() => resetStudioServices())
 
 describe("studio photo flow", () => {
-  it("moves from prepared photos into the manual-capable mask editor", async () => {
+  it("moves directly from prepared photos to ordering without a face-mask step", async () => {
     const repository = new InMemoryRepository()
-    configureStudioServices({
-      repository,
-      faceDetector: { detect: vi.fn().mockResolvedValue([]), lastDiagnostic: "자동 감지를 사용할 수 없어 수동 편집으로 전환했어요." }
-    })
+    configureStudioServices({ repository })
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useStudioStore()
@@ -33,22 +30,14 @@ describe("studio photo flow", () => {
     render(StudioView, {
       global: {
         plugins: [pinia, router],
-        stubs: {
-          "v-stage": { template: "<div><slot /></div>" },
-          "v-layer": { template: "<div><slot /></div>" },
-          "v-image": { template: "<div />" },
-          "v-group": { template: "<div><slot /></div>" },
-          "v-ellipse": { template: "<span />" },
-          "v-rect": { template: "<span />" },
-          "v-transformer": { template: "<span />" }
-        }
+        stubs: {}
       }
     })
 
     expect(screen.getByText("수련 사진을 선택해 주세요")).toBeTruthy()
-    await fireEvent.click(screen.getByRole("button", { name: "얼굴 가림 확인" }))
-    await waitFor(() => expect(screen.getByRole("button", { name: "얼굴 추가" })).toBeTruthy())
-    expect(store.draft?.step).toBe("mask")
-    expect(screen.getByText(/수동으로 얼굴을 추가/)).toBeTruthy()
+    expect(screen.queryByText("가림")).toBeNull()
+    await fireEvent.click(screen.getByRole("button", { name: "사진 순서 정하기" }))
+    await waitFor(() => expect(screen.getByRole("heading", { name: "사진 순서와 대표 사진" })).toBeTruthy())
+    expect(store.draft?.step).toBe("organize")
   })
 })

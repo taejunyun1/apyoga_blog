@@ -2,8 +2,8 @@ export const MAX_BODY_BYTES = 32_768
 
 export class RequestBodyTooLargeError extends Error {}
 
-export async function readJsonBody(request: Request): Promise<unknown> {
-  const bytes = await readBoundedBody(request.body)
+export async function readJsonBody(request: Request, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
+  const bytes = await readBoundedBody(request.body, maxBytes)
   const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   return JSON.parse(raw)
 }
@@ -21,7 +21,7 @@ export function isBoundedString(value: unknown, maxLength: number): value is str
   return typeof value === "string" && value.length <= maxLength
 }
 
-async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
+async function readBoundedBody(body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Uint8Array> {
   if (!body) throw new Error("missing request body")
 
   const reader = body.getReader()
@@ -33,7 +33,7 @@ async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise
       if (done) break
 
       totalBytes += value.byteLength
-      if (totalBytes > MAX_BODY_BYTES) {
+      if (totalBytes > maxBytes) {
         try {
           await reader.cancel()
         } catch {

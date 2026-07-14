@@ -1,22 +1,9 @@
-export type WorkflowStep = "photos" | "mask" | "organize" | "memo" | "brief" | "generating" | "results"
+export type WorkflowStep = "photos" | "organize" | "memo" | "brief" | "generating" | "results"
 export type WritingMode = "auto" | "record" | "essay" | "philosophy" | "body-sense" | "space" | "daily"
 export type Tone = "plain" | "emotional" | "deep"
 export type Channel = "naver" | "instagram"
 export type ChannelStatus = "idle" | "loading" | "success" | "error"
 export type GenerationSource = "openai" | "local-fallback"
-export type MaskStyle = "blur" | "white" | "sticker"
-
-export interface FaceMask {
-  id: string
-  style: MaskStyle
-  x: number
-  y: number
-  width: number
-  height: number
-  rotation: number
-  source: "detected" | "manual"
-}
-
 export interface StudioImage {
   id: string
   name: string
@@ -29,9 +16,6 @@ export interface StudioImage {
   isCover: boolean
   status: "processing" | "ready" | "error"
   error: string | null
-  faceCount: number
-  masks: FaceMask[]
-  maskConfirmedAt: string | null
   createdAt: string
   expiresAt: string
 }

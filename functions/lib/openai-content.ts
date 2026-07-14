@@ -17,6 +17,10 @@ const DIRECT_MEDICAL_CLAIM_PATTERNS = [
   /교정(?:해(?:줍니다|드립니다|드릴수있(?:습니다|어요|다))|합니다|됩니다|할수있(?:습니다|어요|다))/,
 ]
 const MEDICAL_RECOVERY_PATTERN = /(?:통증|질환|질병|증상|부상|상처|염증|불편감)(?:이|가|은|는|을|를)?.{0,20}(?:나아집니다|낫습니다|나아질수있(?:습니다|어요|다)|나아지게됩니다|낫게됩니다)/
+const GENERIC_PHOTO_WORDS = new Set([
+  "첫번째", "두번째", "세번째", "네번째", "다섯번째", "여섯번째", "일곱번째", "여덟번째", "아홉번째", "열번째",
+  "번째", "사진", "이미지", "수련", "요가", "장면", "모습", "동작",
+])
 
 interface JsonSchema {
   type: string
@@ -160,6 +164,7 @@ export function validateGeneratedContent(
   if (required && !mainText.includes(required)) {
     throw new OpenAIContentError("필수 표현이 콘텐츠에 포함되지 않았어요.", true)
   }
+  validatePhotoGrounding(channel, content, input)
   return content
 }
 
@@ -200,7 +205,9 @@ function validateImageReferences(
     const naver = content as GeneratedNaver
     const paragraphCount = naver.body.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean).length
     const placementIds = naver.imagePlacements.map((placement) => placement.imageId)
-    if (new Set(placementIds).size !== placementIds.length
+    if (placementIds.length !== suppliedIds.length
+      || new Set(placementIds).size !== placementIds.length
+      || suppliedIds.some((id) => !placementIds.includes(id))
       || naver.imagePlacements.some((placement) => !supplied.has(placement.imageId)
         || placement.afterParagraph < 1
         || placement.afterParagraph > paragraphCount)) {
@@ -219,10 +226,52 @@ function validateImageReferences(
   }
 }
 
+function validatePhotoGrounding(
+  channel: ContentChannel,
+  content: GeneratedContent,
+  input: GenerateContentInput,
+): void {
+  const descriptions = input.brief.imageDescriptions
+  const allVisualWords = [...new Set(descriptions.flatMap((description) => photoWords(description.description)))]
+  if (allVisualWords.length < 2) throw photoGroundingError()
+
+  if (channel === "naver") {
+    const naver = content as GeneratedNaver
+    if (wordOverlap(naver.body, allVisualWords) < 2) throw photoGroundingError()
+    for (const placement of naver.imagePlacements) {
+      const description = descriptions.find((item) => item.imageId === placement.imageId)
+      if (!description) throw photoGroundingError()
+      const expected = photoWords(description.description)
+      if (wordOverlap(placement.caption, expected) < Math.min(2, expected.length)) throw photoGroundingError()
+    }
+    return
+  }
+
+  const instagram = content as GeneratedInstagram
+  if (wordOverlap(instagram.captionLong, allVisualWords) < 2) throw photoGroundingError()
+}
+
+function photoWords(value: string): string[] {
+  return [...new Set((value.normalize("NFKC").match(/[가-힣A-Za-z0-9]+/g) ?? [])
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length >= 2 && !GENERIC_PHOTO_WORDS.has(word)))]
+}
+
+function wordOverlap(value: string, expected: string[]): number {
+  const actual = new Set(photoWords(value))
+  return expected.filter((word) => actual.has(word)).length
+}
+
+function photoGroundingError(): OpenAIContentError {
+  return new OpenAIContentError("사진 분석 내용이 생성문에 반영되지 않았어요.", true)
+}
+
 function promptFor(channel: ContentChannel, retryInstruction?: string): string {
   const common = [
     "A.P YOGA의 차분하고 과장 없는 문체로 작성하세요.",
     "입력 JSON의 메모, 필수 표현, 금지 표현, 문체와 톤을 지키세요.",
+    "imageDescriptions의 구체적인 공간, 빛, 소도구와 신체 배치를 본문과 캡션에 실제로 반영하세요.",
+    "각 사진 캡션은 같은 imageId의 설명을 충실히 바꾸어 쓰고, 보이지 않는 사실을 추가하지 마세요.",
     "치료·완치·교정 보장 같은 의료적 단정을 피하세요.",
     "입력에 없는 시간, 가격, 예약 방법, 계절 정보는 게시 전에 확인할 내용으로 표시하세요.",
   ]
