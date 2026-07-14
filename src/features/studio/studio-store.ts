@@ -89,10 +89,15 @@ export const useStudioStore = defineStore("studio", () => {
   const busy = ref(false)
   const transientFiles = new Map<string, File>()
   let resultMutationQueue: Promise<void> = Promise.resolve()
+  let pendingResultMutations = 0
 
   function enqueueResultMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    pendingResultMutations += 1
     const operation = resultMutationQueue.then(mutation)
-    resultMutationQueue = operation.then(() => undefined, () => undefined)
+    resultMutationQueue = operation.then(
+      () => { pendingResultMutations -= 1 },
+      () => { pendingResultMutations -= 1 },
+    )
     return operation
   }
 
@@ -561,7 +566,7 @@ export const useStudioStore = defineStore("studio", () => {
     if (target === "generating" || current?.step === "generating") {
       return Promise.reject(new Error("생성 중 단계로는 이동할 수 없어요."))
     }
-    if (!current || busy.value) {
+    if (!current || busy.value || pendingResultMutations > 0) {
       return Promise.reject(new Error("완료한 이전 단계로만 이동할 수 있어요."))
     }
     return enqueueResultMutation(async () => {

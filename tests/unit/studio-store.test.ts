@@ -347,6 +347,43 @@ describe("studio workflow store", () => {
     expect(repository.drafts.get(store.draft!.id)?.step).toBe("results")
   })
 
+  it("rejects backward navigation immediately while another result mutation is queued", async () => {
+    const saveStarted = deferred<void>()
+    const releaseSave = deferred<void>()
+    class DeferredSaveRepository extends InMemoryRepository {
+      deferNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.deferNextSave) {
+          this.deferNextSave = false
+          saveStarted.resolve()
+          await releaseSave.promise
+        }
+        return super.saveDraft(...args)
+      }
+    }
+
+    const repository = new DeferredSaveRepository()
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), step: "results" }
+    repository.deferNextSave = true
+    const pendingSave = store.saveNow()
+    await saveStarted.promise
+
+    const navigation = store.goToCompletedStep("memo")
+    let outcome = "pending"
+    navigation.then(() => { outcome = "resolved" }, () => { outcome = "rejected" })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(outcome).toBe("rejected")
+
+    releaseSave.resolve()
+    await pendingSave
+    await navigation.catch(() => undefined)
+    expect(store.draft?.step).toBe("results")
+  })
+
   it("restores usage when rewrite persistence fails", async () => {
     class FailingRepository extends InMemoryRepository {
       failNextSave = false

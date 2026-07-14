@@ -1,9 +1,8 @@
 import type { ContentEnv, PagesHandler } from "../lib/env"
-import { isSameOriginRequest, json } from "../lib/http"
+import { json } from "../lib/http"
 import { projectUsageSummary, type UsageSummary } from "../lib/usage"
 
 export const onRequestGet: PagesHandler<ContentEnv> = async ({ request, env }) => {
-  if (!isSameOriginRequest(request)) return json({ message: "요청을 확인해 주세요." }, 403)
   try {
     const summary = await projectUsageSummary(env)
     if (!isUsageSummary(summary)) throw new Error("invalid usage summary")

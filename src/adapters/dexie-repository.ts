@@ -110,7 +110,12 @@ export class DexieStudioRepository {
   }
 
   async deleteDraft(id: string): Promise<void> {
-    await this.db.transaction("rw", this.db.drafts, this.db.images, async () => {
+    await this.db.transaction("rw", this.db.drafts, this.db.images, this.db.history, async () => {
+      const [draft, history] = await Promise.all([this.db.drafts.get(id), this.db.history.get(id)])
+      if (draft?.finalizedAt || history) {
+        throw new Error("완료한 글은 작성 이력에서 삭제해 주세요.")
+      }
+      if (!draft) return
       await this.db.drafts.delete(id)
       await this.db.images.where("draftId").equals(id).delete()
     })

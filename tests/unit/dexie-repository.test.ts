@@ -105,6 +105,29 @@ describe("DexieStudioRepository", () => {
     expect(await repo.getImageBlob("blob-1")).toBeUndefined()
   })
 
+  it("refuses to delete a draft finalized by another tab and preserves its images", async () => {
+    const repo = repository()
+    const completed = {
+      ...createDraft("2026-07-11T00:00:00.000Z"),
+      finalizedAt: "2026-07-11T01:00:00.000Z",
+      images: studioImages(1),
+    }
+    const blobId = completed.images[0].editedBlobId
+    await repo.saveDraft(completed, [{
+      id: blobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z",
+    }])
+    await repo.finalize(completed)
+
+    await expect(repo.deleteDraft(completed.id)).rejects.toThrow("완료한 글")
+
+    expect(await repo.getDraft(completed.id)).toBeDefined()
+    expect(await repo.getImageBlob(blobId)).toBeDefined()
+    expect(await repo.listHistory()).toHaveLength(1)
+  })
+
   it("deletes one completed history record with its draft and images", async () => {
     const repo = repository()
     const completed = {

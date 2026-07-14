@@ -26,6 +26,21 @@ function context(request: Request, env: ContentEnv): PagesContext<ContentEnv> {
 }
 
 describe("usage Pages Function", () => {
+  it("returns the protected project aggregate for a same-origin GET without an Origin header", async () => {
+    const response = await onRequestGet(context(
+      new Request("https://studio.example/api/usage"),
+      usageEnv({
+        input_tokens: 120,
+        cached_input_tokens: 20,
+        output_tokens: 80,
+        estimated_krw: 1,
+        request_count: 1,
+      }),
+    ))
+
+    expect(response.status).toBe(200)
+  })
+
   it("returns the protected project aggregate for a same-origin GET", async () => {
     const response = await onRequestGet(context(
       new Request("https://studio.example/api/usage", { headers: { Origin: "https://studio.example" } }),

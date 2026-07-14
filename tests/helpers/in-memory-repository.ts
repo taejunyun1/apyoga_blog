@@ -34,6 +34,10 @@ export class InMemoryRepository {
   }
   async deleteDraft(id: string) {
     const draft = this.drafts.get(id)
+    if (draft?.finalizedAt || this.history.has(id)) {
+      throw new Error("완료한 글은 작성 이력에서 삭제해 주세요.")
+    }
+    if (!draft) return
     this.drafts.delete(id)
     for (const [imageId, draftId] of this.imageDraftIds) {
       if (draftId !== id) continue
