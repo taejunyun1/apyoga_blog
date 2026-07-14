@@ -64,6 +64,24 @@ describe("Cloudflare Pages deployment", () => {
     expect(readme.indexOf(remoteMigration)).toBeLessThan(readme.indexOf(deploy))
   })
 
+  it("documents API usage migration and administrator pricing configuration before deployment", () => {
+    const readme = readFileSync(path.join(root, "README.md"), "utf8")
+    const remoteMigration = "npx wrangler d1 migrations apply ap-yoga-auth --remote"
+    const deploy = "npm run deploy:cloudflare"
+    const pricingCommands = [
+      "npx wrangler pages secret put OPENAI_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+      "npx wrangler pages secret put OPENAI_CACHED_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+      "npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+    ]
+
+    expect(readme).toContain(remoteMigration)
+    for (const command of pricingCommands) expect(readme).toContain(command)
+    expect(readme).toContain("관리자가 현재 모델 가격을 KRW로 환산")
+    expect(readme).toContain("추정치")
+    expect(readme).toContain("이후에 기록되는 행")
+    expect(readme.indexOf(remoteMigration)).toBeLessThan(readme.indexOf(deploy))
+  })
+
   it("builds before invoking the checked-in Wrangler CLI", () => {
     const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>
