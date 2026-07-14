@@ -753,20 +753,20 @@ git diff origin/codex/photo-aware-generation...HEAD -- . ':!package-lock.json'
 
 Expected: no whitespace errors, no API keys or credentials, no changes outside the design/plan, rewrite stack, result/home UI, tests, and deployment evidence.
 
-- [ ] **Step 4: Commit the browser regression**
+- [x] **Step 4: Commit the browser regression**
 
 ```bash
 git add tests/e2e/studio-flow.spec.ts
 git commit -m "2026-07-14 제목 본문 재작성 및 메인 이동 브라우저 검증"
 ```
 
-- [ ] **Step 5: Push the feature branch**
+- [x] **Step 5: Push the feature branch**
 
 Run: `git push origin codex/photo-aware-generation`
 
 Expected: the remote branch updates successfully and the existing pull request includes all new commits.
 
-- [ ] **Step 6: Deploy to Cloudflare Pages**
+- [x] **Step 6: Deploy to Cloudflare Pages**
 
 Run: `npm run deploy:cloudflare`
 
@@ -776,7 +776,7 @@ Expected: Wrangler reports a successful deployment for `ap-yoga-content-studio` 
 
 Use the authenticated browser path on the new deployment and production alias. Verify login, create/open a result draft, click `최근 글과 다르게`, confirm both title and full body change, click `작성 이력에 저장하고 메인으로`, confirm the history entry and one-time toast, and refresh to confirm the toast does not repeat.
 
-- [ ] **Step 8: Record deployment evidence**
+- [x] **Step 8: Record deployment evidence**
 
 Add the final deployment URL, production URL, verification timestamp, automated command results, and manual checks to the existing pull request description or deployment evidence document, then commit only if a repository evidence file changed:
 
@@ -787,3 +787,12 @@ git push origin codex/photo-aware-generation
 ```
 
 Expected: the deployed production URL is ready for the user to test with the existing application login.
+
+#### Deployment evidence — 2026-07-14 16:13 KST
+
+- Preview deployment: `https://cb351b34.ap-yoga-content-studio.pages.dev`
+- Production alias: `https://ap-yoga-content-studio.pages.dev`
+- Deployment command: `npm run deploy:cloudflare` completed successfully on the `master` Pages branch.
+- Automated verification: `npm run test:run` (45 files, 477 tests), `npm run typecheck`, `npm run typecheck:functions`, `npm run build`, and `npm run test:e2e` (6 tests) all passed.
+- Public browser smoke check: the preview loads the expected login screen; unauthenticated session response is `401` as expected. Both preview and production bundles include the paired-rewrite feedback and the `작성 이력에 저장하고 메인으로` action.
+- The logged-in production flow was not submitted from this automated session, so the application login can be used for the final live-content check without transmitting credentials through the test runner.
