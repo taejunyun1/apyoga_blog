@@ -34,6 +34,9 @@ interface UsageSummaryRow {
   request_count: number
 }
 
+const MAX_LEDGER_IDENTIFIER_LENGTH = 256
+const MAX_LEDGER_TIMESTAMP_LENGTH = 64
+
 export function parseOpenAIResponseUsage(payload: unknown): OpenAIResponseUsage {
   if (!isRecord(payload) || !isRecord(payload.usage)) throw invalidUsage()
 
@@ -59,12 +62,18 @@ export function estimateUsageKrw(usage: OpenAIResponseUsage, rates: UsageRates):
   if (!isValidRates(rates)) throw new Error("AI 사용량 가격 형식이 올바르지 않아요.")
 
   const uncachedInput = usage.inputTokens - usage.cachedInputTokens
-  return Math.round((uncachedInput * rates.inputKrwPerMillion
+  const estimate = Math.round((uncachedInput * rates.inputKrwPerMillion
     + usage.cachedInputTokens * rates.cachedInputKrwPerMillion
     + usage.outputTokens * rates.outputKrwPerMillion) / 1_000_000)
+  if (!Number.isSafeInteger(estimate) || estimate < 0) {
+    throw new Error("AI 사용량 비용 형식이 올바르지 않아요.")
+  }
+  return estimate
 }
 
 export async function recordUsage(env: Pick<ContentEnv, "AUTH_DB">, record: UsageRecord): Promise<void> {
+  if (!isValidUsageRecord(record)) throw new Error("AI 사용량 기록 형식이 올바르지 않아요.")
+
   const result = await usageSession(env)
     .prepare(`INSERT INTO api_usage (
       draft_id, request_kind, model, input_tokens, cached_input_tokens, output_tokens, estimated_krw, created_at
@@ -129,6 +138,33 @@ function isValidUsage(usage: OpenAIResponseUsage): boolean {
     && isTokenCount(usage.cachedInputTokens)
     && isTokenCount(usage.outputTokens)
     && usage.cachedInputTokens <= usage.inputTokens
+}
+
+function isValidUsageRecord(record: unknown): record is UsageRecord {
+  return isRecord(record)
+    && isPersistableCount(record.inputTokens)
+    && isPersistableCount(record.cachedInputTokens)
+    && isPersistableCount(record.outputTokens)
+    && record.cachedInputTokens <= record.inputTokens
+    && isPersistableCount(record.estimatedKrw)
+    && isBoundedText(record.draftId, MAX_LEDGER_IDENTIFIER_LENGTH)
+    && isBoundedText(record.requestKind, MAX_LEDGER_IDENTIFIER_LENGTH)
+    && isBoundedText(record.model, MAX_LEDGER_IDENTIFIER_LENGTH)
+    && isValidTimestamp(record.createdAt)
+}
+
+function isBoundedText(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.length <= maxLength && Boolean(value.trim())
+}
+
+function isPersistableCount(value: unknown): value is number {
+  return isTokenCount(value) && Number.isSafeInteger(value)
+}
+
+function isValidTimestamp(value: unknown): value is string {
+  if (!isBoundedText(value, MAX_LEDGER_TIMESTAMP_LENGTH)) return false
+  const timestamp = new Date(value)
+  return Number.isFinite(timestamp.valueOf()) && timestamp.toISOString() === value
 }
 
 function isValidRates(rates: UsageRates): boolean {

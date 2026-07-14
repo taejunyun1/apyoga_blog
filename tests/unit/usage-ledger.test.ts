@@ -8,6 +8,19 @@ import {
 } from "../../functions/lib/usage"
 import { fakeUsageDatabase } from "./auth-env-fixtures"
 
+function validUsageRecord() {
+  return {
+    draftId: "draft-1",
+    requestKind: "naver",
+    model: "gpt-5.6-luna",
+    inputTokens: 10,
+    cachedInputTokens: 2,
+    outputTokens: 4,
+    estimatedKrw: 2,
+    createdAt: "2026-07-14T00:00:00.000Z",
+  }
+}
+
 function usageEnv(database: ReturnType<typeof fakeUsageDatabase>): ContentEnv {
   return {
     AUTH_USERNAME: "studio-user",
@@ -101,16 +114,48 @@ describe("usage ledger", () => {
   it("rejects a ledger write that D1 did not persist", async () => {
     const database = fakeUsageDatabase({ runSuccess: false })
 
-    await expect(recordUsage(usageEnv(database), {
-      draftId: "draft-1",
-      requestKind: "naver",
-      model: "gpt-5.6-luna",
-      inputTokens: 10,
-      cachedInputTokens: 2,
-      outputTokens: 4,
-      estimatedKrw: 2,
-      createdAt: "2026-07-14T00:00:00.000Z",
-    })).rejects.toThrow("AI 사용량 저장")
+    await expect(recordUsage(usageEnv(database), validUsageRecord())).rejects.toThrow("AI 사용량 저장")
+  })
+
+  it.each([
+    { label: "a non-finite", rate: Number.MAX_VALUE },
+    { label: "an unsafe", rate: Number.MAX_SAFE_INTEGER + 1 },
+  ])("rejects %s rounded estimate from finite rates", ({ rate }) => {
+    expect(() => estimateUsageKrw({
+      inputTokens: 1_000_000,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+    }, {
+      inputKrwPerMillion: rate,
+      cachedInputKrwPerMillion: 0,
+      outputKrwPerMillion: 0,
+    })).toThrow("AI 사용량 비용 형식")
+  })
+
+  it.each([
+    { inputTokens: -1 },
+    { inputTokens: 1.5 },
+    { inputTokens: Number.MAX_SAFE_INTEGER + 1 },
+    { inputTokens: 1, cachedInputTokens: 2 },
+    { outputTokens: -1 },
+    { estimatedKrw: 1.5 },
+    { estimatedKrw: -1 },
+    { estimatedKrw: Number.MAX_SAFE_INTEGER + 1 },
+    { draftId: " " },
+    { requestKind: " " },
+    { model: " " },
+    { draftId: "x".repeat(257) },
+    { requestKind: "x".repeat(257) },
+    { model: "x".repeat(257) },
+    { createdAt: "not-a-timestamp" },
+    { createdAt: "2026-07-14T00:00:00.000Z".repeat(3) },
+  ])("rejects invalid records before binding values", async (invalidValues) => {
+    const database = fakeUsageDatabase()
+
+    await expect(recordUsage(usageEnv(database), { ...validUsageRecord(), ...invalidValues }))
+      .rejects.toThrow("AI 사용량 기록 형식")
+    expect(database.lastQuery).toBe("")
+    expect(database.lastBoundValues).toEqual([])
   })
 
   it.each([
