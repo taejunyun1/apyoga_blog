@@ -7,6 +7,15 @@ const rewrittenBody = "호흡과 사진 속 수련 장면을 구체적으로 살
 const persistedBody = rewrittenBody.trim()
 const rewrittenTitle = "고요한 공간에서 이어진 저녁의 호흡"
 const rewrittenTitleBody = "수련이 끝난 뒤에도 호흡의 리듬은 천천히 마음에 남습니다. 오늘은 무리하게 더 나아가기보다, 지금의 몸을 있는 그대로 받아들이며 작은 여백을 만들었습니다. 들이쉬는 숨마다 어깨와 가슴 주변의 긴장이 조금씩 누그러지고, 내쉬는 숨마다 하루 동안 쌓인 생각도 조용히 자리를 찾습니다. 각자의 속도는 달라도 같은 시간 안에서 서로의 호흡을 존중하며 머무는 순간이 참 든든했습니다. 매트 위에서 보낸 이 시간이 바쁜 일상으로 돌아가는 길에도 다정한 중심이 되어 주기를 바랍니다. 다음 수련에서도 나에게 필요한 만큼 쉬고, 필요한 만큼 움직이며, 몸과 마음의 이야기를 차분히 들어보려 합니다. ".repeat(4).trim()
+const usage = {
+  inputTokens: 120,
+  cachedInputTokens: 20,
+  outputTokens: 125,
+  totalTokens: 245,
+  estimatedKrw: 123,
+  requestCount: 2,
+}
+const requestUsage = { ...usage, requestCount: 1 }
 
 async function mockImageAnalysis(page: Page) {
   await page.route("**/api/content/analyze-images", async (route) => {
@@ -28,7 +37,8 @@ async function mockImageAnalysis(page: Page) {
           uncertainClaims: [],
           seasonalContext: "",
           userMemoSummary: request.memo
-        }
+        },
+        usage: requestUsage,
       })
     })
   })
@@ -84,6 +94,92 @@ async function seedHistory(page: Page) {
   await page.reload()
 }
 
+async function seedUsageFlow(page: Page) {
+  await page.goto("/")
+  await page.getByRole("button", { name: "새 글 만들기" }).click()
+  await page.goto("/")
+  await page.evaluate(async ({ usage }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("ap-yoga-content-studio")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction(["drafts", "history"], "readwrite")
+    const drafts = transaction.objectStore("drafts")
+    const history = transaction.objectStore("history")
+    const naver = {
+      status: "success",
+      error: null,
+      data: {
+        titles: ["사용량이 저장된 저녁 수련"],
+        introOptions: ["호흡을 고른 수련입니다."],
+        body: "호흡과 몸의 감각을 차분히 기록한 수련입니다.",
+        imagePlacements: [],
+        hashtags: ["#요가"],
+        classInfo: "예약 정보 확인",
+        generationSource: "openai",
+        qualityChecks: {}
+      }
+    }
+    const instagram = {
+      status: "success",
+      error: null,
+      data: {
+        hookOptions: ["호흡으로 돌아온 저녁"],
+        captionLong: "호흡과 몸의 감각을 차분히 기록한 수련입니다.",
+        captionShort: "차분한 저녁 수련.",
+        hashtags: ["#요가"],
+        coverImageId: "",
+        imageOrder: [],
+        generationSource: "openai",
+        qualityChecks: {}
+      }
+    }
+    const active = {
+      id: "active-draft",
+      step: "brief",
+      title: "작성 중인 글",
+      sourceMemo: "호흡을 가다듬은 저녁 수련",
+      mustInclude: "",
+      avoid: "",
+      writingMode: "auto",
+      naverTone: "plain",
+      instagramTone: "emotional",
+      images: [],
+      brief: null,
+      briefConfirmed: false,
+      naver: { status: "idle", error: null, data: null },
+      instagram: { status: "idle", error: null, data: null },
+      review: null,
+      usage,
+      createdAt: "2026-07-14T00:00:00.000Z",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      finalizedAt: null,
+    }
+    const completed = {
+      ...active,
+      id: "usage-history",
+      step: "results",
+      title: "사용량이 저장된 저녁 수련",
+      naver,
+      instagram,
+      review: { medicalClaims: [], repetitions: [], privacyWarnings: [], passed: true },
+      finalizedAt: "2026-07-14T01:00:00.000Z",
+      updatedAt: "2026-07-14T01:00:00.000Z",
+    }
+    drafts.put({ id: active.id, updatedAt: active.updatedAt, finalizedAt: null, value: active })
+    drafts.put({ id: completed.id, updatedAt: completed.updatedAt, finalizedAt: completed.finalizedAt, value: completed })
+    history.put({ id: completed.id, finalizedAt: completed.finalizedAt, value: completed })
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    database.close()
+  }, { usage })
+  await page.reload()
+}
+
 test("deletes individual and all completed history without removing active drafts", async ({ page }, testInfo) => {
   await page.route("**/api/auth/session", (route) => route.fulfill({ status: 204 }))
   await seedHistory(page)
@@ -131,6 +227,30 @@ test("deletes individual and all completed history without removing active draft
   await page.screenshot({ path: testInfo.outputPath("history-deletion.png"), fullPage: true })
 })
 
+test("shows stored usage, deletes only an active draft, and navigates completed stages", async ({ page }) => {
+  await page.route("**/api/auth/session", (route) => route.fulfill({ status: 204 }))
+  await page.route("**/api/usage", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(usage) }))
+  await seedUsageFlow(page)
+
+  await expect(page.getByRole("heading", { name: "프로젝트 AI 사용량" })).toBeVisible()
+  await expect(page.getByText("총 245 토큰")).toBeVisible()
+  await page.getByRole("button", { name: "작성 중인 글 삭제" }).click()
+  const draftDialog = page.getByRole("alertdialog", { name: "작성 중인 글 삭제" })
+  await expect(draftDialog).toContainText("작성 중인 글과 사진을 영구 삭제")
+  await draftDialog.getByRole("button", { name: "삭제" }).click()
+  await expect(page.getByRole("link", { name: "작성 중인 글 이어서 작성" })).toHaveCount(0)
+  await expect(page.getByText("사용량이 저장된 저녁 수련")).toBeVisible()
+
+  await page.getByRole("link", { name: "사용량이 저장된 저녁 수련" }).click()
+  await expect(page.getByRole("heading", { name: "이번 글 AI 사용량" })).toBeVisible()
+  await expect(page.getByText("추정 비용 123원")).toBeVisible()
+  const memoStage = page.getByRole("button", { name: "3단계 메모로 이동" })
+  await expect(memoStage).toHaveCSS("cursor", "pointer")
+  await memoStage.click()
+  await expect(page.getByLabel("오늘의 수련 메모")).toBeVisible()
+  await expect(page.getByRole("button", { name: "5단계 생성으로 이동" })).toHaveCount(0)
+})
+
 test("creates and restores a two-channel yoga post", async ({ page }, testInfo) => {
   await mockImageAnalysis(page)
   await page.route("**/api/content/generate", (route) => route.fulfill({ status: 503, body: "local fallback" }))
@@ -140,7 +260,7 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ source: "openai", data: { title: rewrittenTitle, body: rewrittenTitleBody } })
+        body: JSON.stringify({ source: "openai", data: { title: rewrittenTitle, body: rewrittenTitleBody }, usage: requestUsage })
       })
       return
     }
@@ -149,7 +269,7 @@ test("creates and restores a two-channel yoga post", async ({ page }, testInfo) 
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ source: "openai", data: { section: request.section, text } })
+      body: JSON.stringify({ source: "openai", data: { section: request.section, text }, usage: requestUsage })
     })
   })
   await page.goto("/")

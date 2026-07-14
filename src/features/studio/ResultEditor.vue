@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import type { ChannelResult, InstagramOutput, NaverOutput, ReviewOutput, StudioImage } from "@/domain/studio"
+import type { ChannelResult, DraftUsage, InstagramOutput, NaverOutput, ReviewOutput, StudioImage } from "@/domain/studio"
 import ChannelTabs from "./ChannelTabs.vue"
 import CopyActionGroup from "./CopyActionGroup.vue"
 import PublishChecklist from "./PublishChecklist.vue"
 import ResultImageMap from "./ResultImageMap.vue"
 import RewriteActionSheet from "./RewriteActionSheet.vue"
 import RewriteResultPreview from "./RewriteResultPreview.vue"
+import UsageSummary from "./UsageSummary.vue"
 import type { RewritePreview } from "./rewrite-actions"
 
-defineProps<{
+withDefaults(defineProps<{
   naver: ChannelResult<NaverOutput>
   instagram: ChannelResult<InstagramOutput>
   review: ReviewOutput
@@ -17,7 +18,17 @@ defineProps<{
   images: StudioImage[]
   pendingRewriteKey: string | null
   rewritePreviews: Partial<Record<"naver" | "instagram", RewritePreview>>
-}>()
+  usage?: DraftUsage
+}>(), {
+  usage: () => ({
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    estimatedKrw: 0,
+    requestCount: 0,
+  })
+})
 const emit = defineEmits<{
   "retry-channel": [channel: "naver" | "instagram"]
   rewrite: [request: { channel: "naver" | "instagram"; section: string; instruction: string }]
@@ -42,6 +53,7 @@ function editText(channel: "naver" | "instagram", section: "body" | "caption" | 
 <template>
   <section class="result-editor">
     <header class="section-heading-row"><div><h2 class="screen-heading">결과 확인 및 편집</h2><p>생성된 초안입니다. 게시 전에 내용을 직접 확인해 주세요.</p></div></header>
+    <UsageSummary :usage="usage" scope="draft" />
     <ChannelTabs :model-value="active" @update:model-value="selectChannel" />
 
     <div v-if="active === 'naver'" role="tabpanel" class="channel-panel">

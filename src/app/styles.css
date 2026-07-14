@@ -154,6 +154,72 @@ select:focus-visible {
   text-align: center;
 }
 
+.usage-summary {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 30px;
+  border: 1px solid #e2c79e;
+  border-radius: var(--ap-radius);
+  background: linear-gradient(135deg, #fffaf3, var(--ap-surface));
+  padding: 18px;
+}
+
+.usage-summary__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-summary__header h2,
+.usage-summary__header p,
+.usage-summary__cost {
+  margin: 0;
+}
+
+.usage-summary__header h2 {
+  font-size: 0.94rem;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+
+.usage-summary__header p,
+.usage-summary__cost {
+  color: #825c3a;
+  font-size: 0.83rem;
+  font-weight: 720;
+}
+
+.usage-summary__breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  color: var(--ap-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.usage-summary__breakdown li {
+  min-width: 0;
+}
+
+.usage-summary__cost {
+  border-top: 1px solid #eadbc8;
+  padding-top: 12px;
+}
+
+.usage-summary-unavailable {
+  margin: 0 0 30px;
+  border-left: 3px solid var(--ap-accent);
+  padding: 9px 12px;
+  color: var(--ap-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .section-title {
   margin: 0 0 12px;
   font-size: 1.06rem;
@@ -243,7 +309,7 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.history-delete-button {
+.content-row-delete-button {
   display: inline-flex;
   width: 44px;
   min-width: 44px;
@@ -256,14 +322,14 @@ select:focus-visible {
   color: var(--ap-muted);
 }
 
-.history-delete-button:hover,
-.history-delete-button:focus-visible {
+.content-row-delete-button:hover,
+.content-row-delete-button:focus-visible {
   border-color: color-mix(in srgb, var(--ap-error) 28%, var(--ap-border));
   background: #fff7f4;
   color: var(--ap-error);
 }
 
-.history-delete-button svg {
+.content-row-delete-button svg {
   width: 20px;
   height: 20px;
 }
@@ -624,7 +690,21 @@ select:focus-visible {
   color: #9a958d;
 }
 
-.progress-stepper li > span {
+.progress-stepper__control {
+  display: grid;
+  min-width: 44px;
+  min-height: 44px;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  text-align: center;
+}
+
+.progress-stepper__indicator {
   display: grid;
   width: 24px;
   height: 24px;
@@ -636,7 +716,7 @@ select:focus-visible {
   font-weight: 700;
 }
 
-.progress-stepper li > small {
+.progress-stepper__label {
   font-size: 0.66rem;
 }
 
@@ -645,14 +725,18 @@ select:focus-visible {
   color: var(--ap-ink);
 }
 
-.progress-stepper .is-current > span {
+.progress-stepper .is-current .progress-stepper__indicator {
   border-color: #d89f64;
   background: var(--ap-accent);
 }
 
-.progress-stepper .is-complete > span {
+.progress-stepper .is-complete .progress-stepper__indicator {
   border-color: var(--ap-accent);
   color: #95612c;
+}
+
+.progress-stepper .is-complete .progress-stepper__control:not(.progress-stepper__control--static) {
+  cursor: pointer;
 }
 
 .studio-content {
@@ -1381,6 +1465,16 @@ select:focus-visible {
 }
 
 @media (max-width: 420px) {
+  .usage-summary__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .usage-summary__breakdown {
+    grid-template-columns: 1fr;
+  }
+
   .two-column-fields {
     grid-template-columns: 1fr;
   }

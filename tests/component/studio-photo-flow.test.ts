@@ -40,4 +40,32 @@ describe("studio photo flow", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "사진 순서와 대표 사진" })).toBeTruthy())
     expect(store.draft?.step).toBe("organize")
   })
+
+  it("moves to a completed prior stage but leaves future stages non-navigable", async () => {
+    const repository = new InMemoryRepository()
+    configureStudioServices({ repository })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useStudioStore()
+    store.draft = {
+      ...createDraft(),
+      step: "brief",
+      sourceMemo: "호흡을 가다듬은 저녁 수련",
+      images: studioImages(1),
+    }
+    repository.drafts.set(store.draft.id, store.draft)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/studio/:draftId", component: StudioView }]
+    })
+    await router.push(`/studio/${store.draft.id}`)
+    await router.isReady()
+
+    render(StudioView, { global: { plugins: [pinia, router], stubs: {} } })
+
+    await fireEvent.click(screen.getByRole("button", { name: "3단계 메모로 이동" }))
+    await waitFor(() => expect(screen.getByLabelText("오늘의 수련 메모")).toBeTruthy())
+    expect(screen.queryByRole("button", { name: "5단계 생성으로 이동" })).toBeNull()
+    expect(store.draft?.step).toBe("memo")
+  })
 })

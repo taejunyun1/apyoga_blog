@@ -14,6 +14,7 @@ import ResultEditor from "@/features/studio/ResultEditor.vue"
 import { rewriteActionKey, rewriteFeedbackFor, type RewritePreview } from "@/features/studio/rewrite-actions"
 import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
+import type { WorkflowStep } from "@/domain/studio"
 
 const route = useRoute()
 const router = useRouter()
@@ -169,6 +170,10 @@ async function finalizeResult() {
   if (!completed) return
   await router.push({ path: "/", query: { saved: "1" } })
 }
+
+async function navigateToCompletedStep(target: WorkflowStep) {
+  await run(() => store.goToCompletedStep(target))
+}
 </script>
 
 <template>
@@ -186,7 +191,7 @@ async function finalizeResult() {
       <LogoutButton @error="error = $event" />
     </header>
 
-    <ProgressStepper :current="store.draft.step" />
+    <ProgressStepper :current="store.draft.step" @navigate="navigateToCompletedStep" />
     <ErrorBanner v-if="error" :message="error" @dismiss="error = null" />
 
     <div class="studio-content">
@@ -241,6 +246,7 @@ async function finalizeResult() {
         :images="store.draft.images"
         :pending-rewrite-key="pendingRewriteKey"
         :rewrite-previews="rewritePreviews"
+        :usage="store.draft.usage"
         @retry-channel="retryChannel"
         @rewrite="rewriteResult"
         @select-option="selectResultOption"

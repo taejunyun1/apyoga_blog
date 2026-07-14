@@ -29,7 +29,15 @@ const fallbackNotice = "AI 연결이 불안정해 로컬 초안을 사용했어�
 const images = studioImages(3)
 const rewriteProps = {
   pendingRewriteKey: null,
-  rewritePreviews: {}
+  rewritePreviews: {},
+  usage: {
+    inputTokens: 120,
+    cachedInputTokens: 20,
+    outputTokens: 125,
+    totalTokens: 245,
+    estimatedKrw: 123,
+    requestCount: 2,
+  }
 }
 
 function expectEnabledControl(label: string) {
@@ -38,6 +46,14 @@ function expectEnabledControl(label: string) {
 }
 
 describe("ResultEditor", () => {
+  it("shows the per-draft AI usage summary", () => {
+    render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images, ...rewriteProps } })
+
+    expect(screen.getByRole("heading", { name: "이번 글 AI 사용량" })).toBeTruthy()
+    expect(screen.getByText("총 245 토큰")).toBeTruthy()
+    expect(screen.getByText("추정 비용 123원")).toBeTruthy()
+  })
+
   it("describes generated drafts without claiming every result is local demo output", () => {
     render(ResultEditor, { props: { naver, instagram: successfulInstagram, review, copyFallback: null, images, ...rewriteProps } })
 

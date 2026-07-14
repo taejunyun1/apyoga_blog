@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import LogoutButton from "@/features/auth/LogoutButton.vue"
 import HistoryDeleteDialog from "@/features/studio/HistoryDeleteDialog.vue"
+import UsageSummary from "@/features/studio/UsageSummary.vue"
 import { useStudioStore } from "@/features/studio/studio-store"
 
 const router = useRouter()
@@ -10,6 +11,7 @@ const route = useRoute()
 const store = useStudioStore()
 const logoutError = ref<string | null>(null)
 type DeleteTarget =
+  | { kind: "draft"; id: string; title: string }
   | { kind: "one"; id: string; title: string }
   | { kind: "all"; count: number }
 
@@ -17,12 +19,17 @@ const deleteTarget = ref<DeleteTarget | null>(null)
 const deleting = ref(false)
 const deleteError = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
+const usageSummaryUnavailable = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-const deleteDialogTitle = computed(() => deleteTarget.value?.kind === "all" ? "모든 기록 삭제" : "기록 삭제")
+const deleteDialogTitle = computed(() => {
+  if (deleteTarget.value?.kind === "draft") return "작성 중인 글 삭제"
+  return deleteTarget.value?.kind === "all" ? "모든 기록 삭제" : "기록 삭제"
+})
 const deleteDialogDescription = computed(() => {
   const target = deleteTarget.value
   if (!target) return ""
+  if (target.kind === "draft") return `“${target.title}” 작성 중인 글과 사진을 영구 삭제할까요?`
   return target.kind === "all"
     ? `저장된 기록 ${target.count}개를 모두 삭제할까요?`
     : `“${target.title}” 기록을 삭제할까요?`
@@ -30,6 +37,9 @@ const deleteDialogDescription = computed(() => {
 
 onMounted(async () => {
   await store.loadHome()
+  void store.loadUsageSummary().catch(() => {
+    usageSummaryUnavailable.value = true
+  })
   if (route.query.saved !== "1") return
   showToast("작성 이력에 저장했어요")
   const query = { ...route.query }
@@ -52,6 +62,11 @@ function readableDate(value: string) {
 function requestDelete(id: string, title: string) {
   deleteError.value = null
   deleteTarget.value = { kind: "one", id, title }
+}
+
+function requestDraftDelete(id: string, title: string) {
+  deleteError.value = null
+  deleteTarget.value = { kind: "draft", id, title }
 }
 
 function requestClearHistory() {
@@ -80,7 +95,10 @@ async function confirmDelete() {
   deleting.value = true
   deleteError.value = null
   try {
-    if (target.kind === "one") {
+    if (target.kind === "draft") {
+      await store.deleteDraft(target.id)
+      showToast("작성 중인 글을 삭제했어요")
+    } else if (target.kind === "one") {
       await store.deleteHistory(target.id)
       showToast("기록을 삭제했어요")
     } else {
@@ -89,7 +107,9 @@ async function confirmDelete() {
     }
     deleteTarget.value = null
   } catch (error) {
-    deleteError.value = error instanceof Error ? error.message : "기록을 삭제하지 못했어요. 다시 시도해 주세요."
+    deleteError.value = error instanceof Error ? error.message : target.kind === "draft"
+      ? "작성 중인 글을 삭제하지 못했어요. 다시 시도해 주세요."
+      : "기록을 삭제하지 못했어요. 다시 시도해 주세요."
   } finally {
     deleting.value = false
   }
@@ -115,24 +135,29 @@ async function confirmDelete() {
         새 글 만들기
       </button>
       <p class="lead">최대 10장 사진과 짧은 메모로 두 채널 콘텐츠를 만들어요.</p>
+      <UsageSummary v-if="!usageSummaryUnavailable" :usage="store.projectUsage" scope="project" />
+      <p v-else class="usage-summary-unavailable">프로젝트 AI 사용량을 불러오지 못했어요.</p>
 
       <section class="section-block" aria-labelledby="draft-heading">
         <h2 id="draft-heading" class="section-title">작성 중인 글</h2>
         <div v-if="store.drafts.length === 0" class="empty-row">저장된 임시 글이 없습니다.</div>
         <div v-else class="content-list">
-          <RouterLink
+          <div
             v-for="draft in store.drafts"
             :key="draft.id"
-            class="content-row"
-            :to="`/studio/${draft.id}`"
-            :aria-label="`${draft.title} 이어서 작성`"
+            class="content-row content-row--actionable"
           >
-            <span>
-              <strong>{{ draft.title }}</strong>
-              <small>수정 중 · {{ readableDate(draft.updatedAt) }}</small>
-            </span>
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
-          </RouterLink>
+            <RouterLink class="content-row__link" :to="`/studio/${draft.id}`" :aria-label="`${draft.title} 이어서 작성`">
+              <span>
+                <strong>{{ draft.title }}</strong>
+                <small>수정 중 · {{ readableDate(draft.updatedAt) }}</small>
+              </span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
+            </RouterLink>
+            <button type="button" class="content-row-delete-button" :aria-label="`${draft.title} 삭제`" @click="requestDraftDelete(draft.id, draft.title)">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5" /></svg>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -155,7 +180,7 @@ async function confirmDelete() {
             </RouterLink>
             <button
               type="button"
-              class="history-delete-button"
+              class="content-row-delete-button"
               :aria-label="`${item.title} 삭제`"
               @click="requestDelete(item.id, item.title)"
             >

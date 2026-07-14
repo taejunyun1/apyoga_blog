@@ -10,6 +10,7 @@ import { InMemoryRepository } from "../helpers/in-memory-repository"
 afterEach(() => {
   resetStudioServices()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function completedDraft(title: string, finalizedAt: string) {
@@ -67,6 +68,26 @@ describe("history deletion", () => {
     expect((await screen.findByRole("status")).textContent).toBe("기록을 삭제했어요")
     expect(repository.history.has(completed.id)).toBe(false)
     expect(router.currentRoute.value.fullPath).toBe("/")
+  })
+
+  it("confirms and permanently deletes an unfinished draft without deleting history", async () => {
+    const repository = new InMemoryRepository()
+    const active = { ...createDraft("2026-07-14T00:00:00.000Z"), title: "작성 중인 글" }
+    const completed = completedDraft("남겨둘 완료 기록", "2026-07-14T01:00:00.000Z")
+    repository.drafts.set(active.id, active)
+    repository.drafts.set(completed.id, completed)
+    repository.history.set(completed.id, completed)
+    await renderHome(repository)
+    await screen.findByRole("link", { name: "작성 중인 글 이어서 작성" })
+
+    await fireEvent.click(screen.getByRole("button", { name: "작성 중인 글 삭제" }))
+    expect(screen.getByRole("alertdialog", { name: "작성 중인 글 삭제" }).textContent).toContain("“작성 중인 글” 작성 중인 글과 사진을 영구 삭제할까요?")
+    await fireEvent.click(screen.getByRole("button", { name: "삭제" }))
+
+    await waitFor(() => expect(screen.queryByRole("link", { name: "작성 중인 글 이어서 작성" })).toBeNull())
+    expect(screen.getByText("남겨둘 완료 기록")).toBeTruthy()
+    expect(repository.drafts.has(active.id)).toBe(false)
+    expect(repository.history.has(completed.id)).toBe(true)
   })
 
   it("cancels an individual deletion without changing history", async () => {
@@ -137,5 +158,19 @@ describe("history deletion", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("기록 저장소를 정리하지 못했어요")
     expect(screen.getByRole("alertdialog")).toBeTruthy()
     expect(screen.getByText("삭제 실패 기록")).toBeTruthy()
+  })
+
+  it("keeps drafts and history available when the project usage summary cannot load", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("usage unavailable")))
+    const repository = new InMemoryRepository()
+    const active = { ...createDraft("2026-07-14T00:00:00.000Z"), title: "작성 중인 글" }
+    const completed = completedDraft("완료 기록", "2026-07-14T01:00:00.000Z")
+    repository.drafts.set(active.id, active)
+    repository.history.set(completed.id, completed)
+    await renderHome(repository)
+
+    expect(await screen.findByText("작성 중인 글")).toBeTruthy()
+    expect(await screen.findByText("완료 기록")).toBeTruthy()
+    expect(await screen.findByText("프로젝트 AI 사용량을 불러오지 못했어요.")).toBeTruthy()
   })
 })
