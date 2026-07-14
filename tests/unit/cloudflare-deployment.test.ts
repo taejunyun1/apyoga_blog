@@ -68,18 +68,31 @@ describe("Cloudflare Pages deployment", () => {
     const readme = readFileSync(path.join(root, "README.md"), "utf8")
     const remoteMigration = "npx wrangler d1 migrations apply ap-yoga-auth --remote"
     const deploy = "npm run deploy:cloudflare"
+    const heading = "### AI 사용량 마이그레이션과 추정 비용 설정"
     const pricingCommands = [
       "npx wrangler pages secret put OPENAI_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
       "npx wrangler pages secret put OPENAI_CACHED_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
       "npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
     ]
+    const sectionStart = readme.indexOf(heading)
+    const sectionEnd = readme.indexOf("\n```\n", sectionStart) + "\n```".length
+    const usageCostSection = readme.slice(sectionStart, sectionEnd)
+    const migrationIndex = usageCostSection.indexOf(remoteMigration)
+    const deployIndex = usageCostSection.indexOf(deploy)
 
-    expect(readme).toContain(remoteMigration)
-    for (const command of pricingCommands) expect(readme).toContain(command)
-    expect(readme).toContain("관리자가 현재 모델 가격을 KRW로 환산")
-    expect(readme).toContain("추정치")
-    expect(readme).toContain("이후에 기록되는 행")
-    expect(readme.indexOf(remoteMigration)).toBeLessThan(readme.indexOf(deploy))
+    expect(usageCostSection).toContain("관리자가 현재 모델 가격을 KRW로 환산")
+    expect(usageCostSection).toContain("추정치")
+    expect(usageCostSection).toContain("이후에 기록되는 행")
+    expect(migrationIndex).toBeGreaterThanOrEqual(0)
+    expect(deployIndex).toBeGreaterThan(migrationIndex)
+    for (const command of pricingCommands) {
+      const commandIndex = usageCostSection.indexOf(command)
+      expect(commandIndex).toBeGreaterThan(migrationIndex)
+      expect(commandIndex).toBeLessThan(deployIndex)
+    }
+    expect(usageCostSection).not.toMatch(/\b(?:sk|rk|sess)-[A-Za-z0-9_-]{8,}\b/)
+    expect(usageCostSection).not.toMatch(/OPENAI_(?:INPUT|CACHED_INPUT|OUTPUT)_KRW_PER_MILLION\s*(?:=|:)\s*\d/)
+    expect(usageCostSection).not.toMatch(/\b(?:\d{3,}\.\d+|\d{1,3}(?:,\d{3})+(?:\.\d+)?)\b/)
   })
 
   it("builds before invoking the checked-in Wrangler CLI", () => {
