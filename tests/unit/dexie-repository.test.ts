@@ -1,7 +1,9 @@
 import { Blob as NodeBlob } from "node:buffer"
 import { afterEach, describe, expect, it } from "vitest"
+import { createPinia, setActivePinia } from "pinia"
 import { DexieStudioRepository } from "@/adapters/dexie-repository"
 import { createDraft } from "@/domain/studio"
+import { configureStudioServices, resetStudioServices, useStudioStore } from "@/features/studio/studio-store"
 import { studioImages } from "../fixtures"
 
 const repositories: DexieStudioRepository[] = []
@@ -21,6 +23,44 @@ afterEach(async () => {
 })
 
 describe("DexieStudioRepository", () => {
+  it("normalizes legacy draft usage on store load and retains saved accumulated totals", async () => {
+    const repo = repository()
+    const legacy = createDraft("2026-07-11T00:00:00.000Z")
+    const storedLegacy = { ...legacy } as { usage?: unknown }
+    delete storedLegacy.usage
+    await repo.saveDraft(storedLegacy as ReturnType<typeof createDraft>)
+
+    setActivePinia(createPinia())
+    resetStudioServices()
+    configureStudioServices({ repository: repo })
+    const store = useStudioStore()
+    await store.load(legacy.id)
+
+    expect(store.draft?.usage).toEqual({
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedKrw: 0,
+      requestCount: 0,
+    })
+
+    const accumulated = {
+      ...createDraft("2026-07-11T01:00:00.000Z"),
+      usage: {
+        inputTokens: 40,
+        cachedInputTokens: 5,
+        outputTokens: 10,
+        totalTokens: 50,
+        estimatedKrw: 2,
+        requestCount: 2,
+      },
+    }
+    await repo.saveDraft(accumulated)
+
+    expect((await repo.getDraft(accumulated.id))?.usage.totalTokens).toBe(50)
+  })
+
   it("saves serializable draft state and edited blobs", async () => {
     const repo = repository()
     const draft = { ...createDraft("2026-07-11T00:00:00.000Z"), images: studioImages(1) }
@@ -63,5 +103,75 @@ describe("DexieStudioRepository", () => {
     await repo.deleteImage("blob-1")
 
     expect(await repo.getImageBlob("blob-1")).toBeUndefined()
+  })
+
+  it("refuses to delete a draft finalized by another tab and preserves its images", async () => {
+    const repo = repository()
+    const completed = {
+      ...createDraft("2026-07-11T00:00:00.000Z"),
+      finalizedAt: "2026-07-11T01:00:00.000Z",
+      images: studioImages(1),
+    }
+    const blobId = completed.images[0].editedBlobId
+    await repo.saveDraft(completed, [{
+      id: blobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z",
+    }])
+    await repo.finalize(completed)
+
+    await expect(repo.deleteDraft(completed.id)).rejects.toThrow("완료한 글")
+
+    expect(await repo.getDraft(completed.id)).toBeDefined()
+    expect(await repo.getImageBlob(blobId)).toBeDefined()
+    expect(await repo.listHistory()).toHaveLength(1)
+  })
+
+  it("deletes one completed history record with its draft and images", async () => {
+    const repo = repository()
+    const completed = {
+      ...createDraft("2026-07-11T00:00:00.000Z"),
+      finalizedAt: "2026-07-11T01:00:00.000Z",
+      images: studioImages(1)
+    }
+    await repo.saveDraft(completed, [{
+      id: completed.images[0].editedBlobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z"
+    }])
+    await repo.finalize(completed)
+
+    await repo.deleteHistory(completed.id)
+
+    expect(await repo.listHistory()).toEqual([])
+    expect(await repo.getDraft(completed.id)).toBeUndefined()
+    expect(await repo.getImageBlob(completed.images[0].editedBlobId)).toBeUndefined()
+  })
+
+  it("clears completed history while preserving unfinished drafts", async () => {
+    const repo = repository()
+    const unfinished = { ...createDraft("2026-07-11T00:00:00.000Z"), title: "작성 중" }
+    const completed = {
+      ...createDraft("2026-07-11T01:00:00.000Z"),
+      finalizedAt: "2026-07-11T02:00:00.000Z",
+      images: studioImages(1)
+    }
+    await repo.saveDraft(unfinished)
+    await repo.saveDraft(completed, [{
+      id: completed.images[0].editedBlobId,
+      draftId: completed.id,
+      blob: blob(["pixels"]),
+      expiresAt: "2026-07-16T00:00:00.000Z"
+    }])
+    await repo.finalize(completed)
+
+    await repo.clearHistory()
+
+    expect(await repo.listHistory()).toEqual([])
+    expect(await repo.getDraft(completed.id)).toBeUndefined()
+    expect(await repo.getImageBlob(completed.images[0].editedBlobId)).toBeUndefined()
+    expect((await repo.getDraft(unfinished.id))?.title).toBe("작성 중")
   })
 })

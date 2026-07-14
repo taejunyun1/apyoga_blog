@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/vue"
 import { describe, expect, it } from "vitest"
 import ContentBriefReview from "@/features/studio/ContentBriefReview.vue"
+import { studioImages } from "../fixtures"
 
 const brief = {
   classSummary: "어깨와 흉곽을 천천히 열어간 저녁 수련",
@@ -17,7 +18,7 @@ const brief = {
 
 describe("ContentBriefReview", () => {
   it("requires explicit confirmation before dual-channel generation", async () => {
-    const { emitted } = render(ContentBriefReview, { props: { brief, confirmed: false, busy: false } })
+    const { emitted } = render(ContentBriefReview, { props: { brief, images: studioImages(1), confirmed: false, busy: false } })
 
     expect(screen.getByRole("button", { name: "두 채널 글 생성" }).hasAttribute("disabled")).toBe(true)
     await fireEvent.click(screen.getByRole("button", { name: "이해한 내용이 맞아요" }))
@@ -26,11 +27,24 @@ describe("ContentBriefReview", () => {
   })
 
   it("emits edited body-focus chips without mutating the prop", async () => {
-    const { emitted } = render(ContentBriefReview, { props: { brief, confirmed: false, busy: false } })
+    const { emitted } = render(ContentBriefReview, { props: { brief, images: studioImages(1), confirmed: false, busy: false } })
     await fireEvent.click(screen.getByRole("button", { name: "흉곽 삭제" }))
 
     const updated = (emitted()["update:brief"]?.[0] as unknown[])?.[0] as typeof brief
     expect(updated.bodyFocus).toEqual(["어깨"])
     expect(brief.bodyFocus).toEqual(["어깨", "흉곽"])
+  })
+
+  it("shows each uploaded thumbnail beside its matching visual analysis", () => {
+    const images = studioImages(1)
+    const photoBrief = {
+      ...brief,
+      imageDescriptions: [{ imageId: images[0].id, description: "큰 창 옆에 베이지색 매트와 둥근 소도구가 놓인 장면" }]
+    }
+
+    render(ContentBriefReview, { props: { brief: photoBrief, images, confirmed: false, busy: false } })
+
+    expect(screen.getByRole("img", { name: `1번째 사진 ${images[0].name}` })).toBeTruthy()
+    expect(screen.getByText(photoBrief.imageDescriptions[0].description)).toBeTruthy()
   })
 })

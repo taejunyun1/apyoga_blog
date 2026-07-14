@@ -20,19 +20,19 @@ const request: GenerateContentInput = {
     classSummary: "차분한 저녁 수련",
     overallMood: "차분함",
     bodyFocus: ["어깨", "흉곽"],
-    imageDescriptions: [{ imageId: "image-1", description: "첫 번째 수련 장면" }],
+    imageDescriptions: [{ imageId: "image-1", description: "큰 창 옆 매트 위에서 두 팔을 길게 뻗은 장면" }],
     recommendedCoverImageId: "image-1",
     recommendedImageOrder: ["image-1"],
   },
 }
 
 function validNaver(): GeneratedNaver {
-  const paragraph = "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살피며 서두르지 않고 각자의 편안한 범위에서 움직였습니다."
+  const paragraph = "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살피며 큰 창 옆 매트 위에서 두 팔을 길게 뻗었습니다."
   return {
     titles: ["천천히 여는 저녁", "몸의 감각을 듣는 시간", "차분하게 이어 간 수련"],
     introOptions: ["오늘의 몸을 살폈습니다.", "작은 움직임에서 시작했습니다.", "편안한 리듬을 찾았습니다."],
     body: Array.from({ length: 12 }, (_, index) => `${index + 1}번째 기록입니다. ${paragraph}`).join("\n\n"),
-    imagePlacements: [{ imageId: "image-1", afterParagraph: 2, caption: "수련 장면" }],
+    imagePlacements: [{ imageId: "image-1", afterParagraph: 2, caption: "큰 창 옆 매트 위에서 두 팔을 길게 뻗은 장면" }],
     hashtags: ["#에이피요가", "#요가기록"],
     classInfo: "수업 정보는 게시 전에 확인해 주세요.",
   }
@@ -41,7 +41,7 @@ function validNaver(): GeneratedNaver {
 function validInstagram(): GeneratedInstagram {
   return {
     hookOptions: ["몸의 속도를 듣는 시간", "작은 움직임에서 시작하기", "오늘의 감각을 따라가기"],
-    captionLong: "호흡을 따라 어깨와 흉곽의 감각을 천천히 살피며 편안한 움직임을 이어 갔습니다.",
+    captionLong: "큰 창 옆 매트 위에서 두 팔을 길게 뻗으며 호흡과 어깨의 감각을 천천히 살폈습니다.",
     captionShort: "호흡으로 돌아온 저녁 수련.",
     hashtags: ["#에이피요가", "#요가기록"],
     coverImageId: "image-1",
@@ -52,6 +52,11 @@ function validInstagram(): GeneratedInstagram {
 function completed(value: unknown): Response {
   return Response.json({
     status: "completed",
+    usage: {
+      input_tokens: 120,
+      output_tokens: 80,
+      input_tokens_details: { cached_tokens: 20 },
+    },
     output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }],
   })
 }
@@ -80,6 +85,44 @@ async function expectRetryable(result: Promise<unknown>, message?: string): Prom
 }
 
 describe("OpenAI content client", () => {
+  it("returns validated generated content together with completed Responses usage", async () => {
+    const { result } = requestContent("naver", completed(validNaver()))
+
+    await expect(result).resolves.toEqual({
+      data: validNaver(),
+      responseUsage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 80 },
+    })
+  })
+
+  it.each([
+    ["naver", { ...validNaver(), body: `${validNaver().body} 첫 번째 사진에는 큰 창과 매트가 보입니다.` }],
+    ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 2번째 사진은 나무 바닥을 보여 줍니다.` }],
+    ["naver", { ...validNaver(), body: `${validNaver().body} 사진 속 발과 하반신은 잠시 멈춘 순간을 보여 줍니다.` }],
+    ["instagram", { ...validInstagram(), captionLong: `${validInstagram().captionLong} 이미지에는 나무 바닥과 꽃이 보입니다.` }],
+  ] as const)("rejects report-style or direct photo narration in %s copy", (channel, content) => {
+    expect(() => validateGeneratedContent(channel, content, request))
+      .toThrow("사진 장면을 나열하지 않고 감성적인 발행 문장으로 작성해 주세요.")
+  })
+
+  it("rejects Naver copy whose body and image caption ignore the analyzed photo", () => {
+    const unrelated = {
+      ...validNaver(),
+      body: "호흡을 따라 어깨와 흉곽의 감각을 차분하게 살폈습니다. ".repeat(20),
+      imagePlacements: [{ imageId: "image-1", afterParagraph: 1, caption: "차분한 요가 수련 장면" }],
+    }
+
+    expect(() => validateGeneratedContent("naver", unrelated, request)).toThrow("사진 분석 내용")
+  })
+
+  it("rejects Instagram copy that contains no concrete visual detail from the photos", () => {
+    const unrelated = {
+      ...validInstagram(),
+      captionLong: "호흡을 따라 몸의 감각을 천천히 살피며 편안한 움직임을 이어 갔습니다.",
+    }
+
+    expect(() => validateGeneratedContent("instagram", unrelated, request)).toThrow("사진 분석 내용")
+  })
+
   it("sends a stateless strict Responses request without photo data", async () => {
     const { fetcher, result } = requestContent("naver", completed(validNaver()))
 
@@ -100,6 +143,10 @@ describe("OpenAI content client", () => {
     expect(body.text.format.schema.additionalProperties).toBe(false)
     expect(body.text.format.schema.properties.imagePlacements.items.additionalProperties).toBe(false)
     expect(body.text.format.schema.properties.imagePlacements.items.properties.afterParagraph.minimum).toBe(1)
+    expect(body.instructions).toContain("사진 순서를 붙여 장면을 나열하지 마세요")
+    expect(body.instructions).toContain("감정과 수련의 여운으로 바꾸어")
+    expect(body.instructions).toContain("'사진', '이미지'라는 단어로 사진을 직접 지칭하지 마세요")
+    expect(body.instructions).toContain("사진마다 1~2개의 핵심 시각 단서만 고르고")
     expect(String(init.body)).not.toContain("blob:")
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
@@ -157,8 +204,8 @@ describe("OpenAI content client", () => {
       brief: {
         ...request.brief,
         imageDescriptions: [
-          { imageId: "image-1", description: "첫 장면" },
-          { imageId: "image-2", description: "둘째 장면" },
+          { imageId: "image-1", description: "큰 창 옆 매트 위에서 두 팔을 길게 뻗은 장면" },
+          { imageId: "image-2", description: "나무 바닥 위에서 블록 옆에 앉아 몸을 기울인 장면" },
         ],
       },
     }

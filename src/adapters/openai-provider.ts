@@ -1,10 +1,25 @@
 import { LocalAIProvider } from "@/adapters/local-ai-provider"
-import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput } from "@/domain/ports"
-import type { Channel, InstagramOutput, NaverOutput } from "@/domain/studio"
+import { isSafePublishableCopy } from "@/domain/content-safety"
+import type {
+  AIProvider,
+  AIResult,
+  AnalyzeImagesInput,
+  ChannelInput,
+  RewriteInput,
+  RewriteNaverTitleAndBodyInput,
+  RewriteNaverTitleAndBodyOutput,
+  RewriteOutput,
+  UsageRecord,
+} from "@/domain/ports"
+import type { Channel, ContentBrief, InstagramOutput, NaverOutput } from "@/domain/studio"
 
 type RemoteNaver = Omit<NaverOutput, "generationSource" | "qualityChecks">
 type RemoteInstagram = Omit<InstagramOutput, "generationSource" | "qualityChecks">
 type RemoteOutput = RemoteNaver | RemoteInstagram
+interface RemoteResult<T> {
+  data: T
+  usage: UsageRecord
+}
 
 interface OpenAIProviderOptions {
   fetcher?: typeof fetch
@@ -70,6 +85,10 @@ function isRemoteInstagram(value: unknown): value is RemoteInstagram {
     && isStringArray(value.imageOrder)
 }
 
+function hasPhotoNarration(value: string): boolean {
+  return /(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?)/u.test(value)
+}
+
 function naverPublishableText(data: RemoteNaver): string[] {
   return [
     ...data.titles,
@@ -102,36 +121,111 @@ export class OpenAIProvider implements AIProvider {
     return this.options.local ?? new LocalAIProvider()
   }
 
-  analyzeImages(input: AnalyzeImagesInput) {
-    return this.local.analyzeImages(input)
+  async analyzeImages(input: AnalyzeImagesInput): Promise<AIResult<ContentBrief>> {
+    return this.analyzeRemotely(input, requireRemoteDraftId(input.draftId))
   }
 
-  rewriteSection(input: RewriteInput) {
-    return this.local.rewriteSection(input)
+  private async analyzeRemotely(input: AnalyzeImagesInput, draftId: string): Promise<AIResult<ContentBrief>> {
+    if (input.images.some((image) => typeof image.dataUrl !== "string" || !image.dataUrl.startsWith("data:image/jpeg;base64,"))) {
+      throw new Error("사진 분석용 이미지를 준비하지 못했어요.")
+    }
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/analyze-images", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toImageAnalysisInput(input, draftId)),
+      })
+    } catch {
+      throw new Error("사진 분석에 실패했어요. 잠시 후 다시 시도해 주세요.")
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) throw new Error("사진 분석에 실패했어요. 잠시 후 다시 시도해 주세요.")
+
+    const result = await readRemoteImageAnalysis(response, input)
+    if (!result) throw new Error("사진 분석 결과를 확인하지 못했어요. 다시 시도해 주세요.")
+    return result
   }
 
-  review(input: { text: string; maskedFacesConfirmed: boolean }) {
+  async rewriteSection(input: RewriteInput): Promise<AIResult<RewriteOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toRewriteInput(input, draftId)),
+      })
+    } catch {
+      return { data: await this.local.rewriteSection(input), usage: null }
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) return { data: await this.local.rewriteSection(input), usage: null }
+
+    const remote = await readRemoteRewrite(response, input)
+    return remote ?? { data: await this.local.rewriteSection(input), usage: null }
+  }
+
+  async rewriteNaverTitleAndBody(input: RewriteNaverTitleAndBodyInput): Promise<AIResult<RewriteNaverTitleAndBodyOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)("/api/content/rewrite", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toNaverTitleAndBodyRewriteInput(input, draftId)),
+      })
+    } catch {
+      return { data: await this.local.rewriteNaverTitleAndBody(input), usage: null }
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const onAuthRequired = this.options.onAuthRequired ?? defaultOnAuthRequired
+      onAuthRequired()
+      throw new Error("로그인이 필요해요.")
+    }
+    if (!response.ok) return { data: await this.local.rewriteNaverTitleAndBody(input), usage: null }
+
+    const remote = await readRemoteNaverTitleAndBodyRewrite(response, input)
+    return remote ?? { data: await this.local.rewriteNaverTitleAndBody(input), usage: null }
+  }
+
+  review(input: { text: string }) {
     return this.local.review(input)
   }
 
-  generateNaver(input: ChannelInput): Promise<NaverOutput> {
-    return this.generate("naver", input, () => this.local.generateNaver(input)) as Promise<NaverOutput>
+  generateNaver(input: ChannelInput): Promise<AIResult<NaverOutput>> {
+    return this.generate("naver", input, () => this.local.generateNaver(input)) as Promise<AIResult<NaverOutput>>
   }
 
-  generateInstagram(input: ChannelInput): Promise<InstagramOutput> {
-    return this.generate("instagram", input, () => this.local.generateInstagram(input)) as Promise<InstagramOutput>
+  generateInstagram(input: ChannelInput): Promise<AIResult<InstagramOutput>> {
+    return this.generate("instagram", input, () => this.local.generateInstagram(input)) as Promise<AIResult<InstagramOutput>>
   }
 
   private async generate(
     channel: Channel,
     input: ChannelInput,
     fallback: () => Promise<NaverOutput | InstagramOutput>,
-  ): Promise<NaverOutput | InstagramOutput> {
+  ): Promise<AIResult<NaverOutput | InstagramOutput>> {
+    const draftId = requireRemoteDraftId(input.draftId)
     const response = await (this.options.fetcher ?? fetch)("/api/content/generate", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel, input: toContentInput(channel, input) }),
+      body: JSON.stringify({ draftId, channel, input: toContentInput(channel, input) }),
     })
 
     if (response.status === 401 || response.status === 403) {
@@ -140,39 +234,45 @@ export class OpenAIProvider implements AIProvider {
       throw new Error("로그인이 필요해요.")
     }
     if (response.status >= 500) {
-      return { ...(await fallback()), generationSource: "local-fallback" }
+      return { data: { ...(await fallback()), generationSource: "local-fallback" }, usage: null }
     }
     if (!response.ok) throw new Error("AI 생성 요청에 실패했어요.")
 
-    const data = await readRemoteData(response, channel)
-    if (!data) return { ...(await fallback()), generationSource: "local-fallback" }
+    const remote = await readRemoteData(response, channel)
+    if (!remote) return { data: { ...(await fallback()), generationSource: "local-fallback" }, usage: null }
 
     if (channel === "naver") {
-      const naver = data as RemoteNaver
+      const naver = remote.data as RemoteNaver
       const publishableText = naverPublishableText(naver)
       return {
-        ...naver,
-        generationSource: "openai",
-        qualityChecks: {
-          avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
-          includesRequiredPhrase: !input.mustInclude.trim() || naver.body.includes(input.mustInclude.trim()),
+        data: {
+          ...naver,
+          generationSource: "openai",
+          qualityChecks: {
+            avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
+            includesRequiredPhrase: !input.mustInclude.trim() || naver.body.includes(input.mustInclude.trim()),
+          },
         },
+        usage: remote.usage,
       }
     }
 
-    const instagram = data as RemoteInstagram
+    const instagram = remote.data as RemoteInstagram
     const publishableText = instagramPublishableText(instagram)
     return {
-      ...instagram,
-      generationSource: "openai",
-      qualityChecks: {
-        avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
+      data: {
+        ...instagram,
+        generationSource: "openai",
+        qualityChecks: {
+          avoidedExpressionRemoved: !forbiddenExpressions(input.avoid).some((term) => publishableText.some((text) => text.includes(term))),
+        },
       },
+      usage: remote.usage,
     }
   }
 }
 
-async function readRemoteData(response: Response, channel: Channel): Promise<RemoteOutput | null> {
+async function readRemoteData(response: Response, channel: Channel): Promise<RemoteResult<RemoteOutput> | null> {
   let payload: unknown
   try {
     payload = await response.json()
@@ -180,13 +280,204 @@ async function readRemoteData(response: Response, channel: Channel): Promise<Rem
     return null
   }
 
-  if (!hasExactKeys(payload, ["channel", "source", "data"])
+  if (!hasExactKeys(payload, ["channel", "source", "data", "usage"])
     || payload.channel !== channel
-    || payload.source !== "openai") {
+    || payload.source !== "openai"
+    || !isUsageRecord(payload.usage)) {
     return null
   }
-  if (channel === "naver") return isRemoteNaver(payload.data) ? payload.data : null
-  return isRemoteInstagram(payload.data) ? payload.data : null
+  if (channel === "naver") return isRemoteNaver(payload.data) ? { data: payload.data, usage: payload.usage } : null
+  return isRemoteInstagram(payload.data) ? { data: payload.data, usage: payload.usage } : null
+}
+
+async function readRemoteImageAnalysis(
+  response: Response,
+  input: AnalyzeImagesInput,
+): Promise<RemoteResult<ContentBrief> | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+  if (!hasExactKeys(payload, ["source", "data", "usage"])
+    || payload.source !== "openai"
+    || !isUsageRecord(payload.usage)
+    || !isRemoteImageBrief(payload.data, input)) {
+    return null
+  }
+  return { data: payload.data, usage: payload.usage }
+}
+
+function isRemoteImageBrief(value: unknown, input: AnalyzeImagesInput): value is ContentBrief {
+  if (!hasExactKeys(value, [
+    "classSummary", "overallMood", "bodyFocus", "visualKeywords", "imageDescriptions",
+    "recommendedCoverImageId", "recommendedImageOrder", "uncertainClaims", "seasonalContext", "userMemoSummary",
+  ])
+    || typeof value.classSummary !== "string"
+    || !value.classSummary.trim()
+    || typeof value.overallMood !== "string"
+    || !value.overallMood.trim()
+    || !isStringArray(value.bodyFocus)
+    || !isStringArray(value.visualKeywords)
+    || !Array.isArray(value.imageDescriptions)
+    || !value.imageDescriptions.every((description) => hasExactKeys(description, ["imageId", "description"])
+      && typeof description.imageId === "string"
+      && typeof description.description === "string"
+      && description.description.trim().length >= 12)
+    || typeof value.recommendedCoverImageId !== "string"
+    || !isStringArray(value.recommendedImageOrder)
+    || !Array.isArray(value.uncertainClaims)
+    || !value.uncertainClaims.every((claim) => typeof claim === "string")
+    || typeof value.seasonalContext !== "string"
+    || typeof value.userMemoSummary !== "string") {
+    return false
+  }
+  const ids = input.images.map((image) => image.id)
+  const descriptionIds = value.imageDescriptions.map((description) => description.imageId)
+  const recommendedImageOrder = value.recommendedImageOrder as string[]
+  const recommendedCoverImageId = value.recommendedCoverImageId as string
+  return ids.length === descriptionIds.length
+    && new Set(descriptionIds).size === ids.length
+    && ids.every((id) => descriptionIds.includes(id))
+    && ids.length === recommendedImageOrder.length
+    && new Set(recommendedImageOrder).size === ids.length
+    && ids.every((id) => recommendedImageOrder.includes(id))
+    && ids.includes(recommendedCoverImageId)
+}
+
+async function readRemoteRewrite(response: Response, input: RewriteInput): Promise<RemoteResult<RewriteOutput> | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+
+  if (!hasExactKeys(payload, ["source", "data", "usage"])
+    || payload.source !== "openai"
+    || !isUsageRecord(payload.usage)
+    || !hasExactKeys(payload.data, ["section", "text"])
+    || payload.data.section !== input.section
+    || typeof payload.data.text !== "string") {
+    return null
+  }
+
+  const text = payload.data.text.trim()
+  if (!text
+    || text === input.currentText.trim()
+    || (input.channel === "naver" && input.section === "body" && text.length < 500)
+    || (input.section === "hashtags"
+      && text.split(/\s+/).some((token) => !token.startsWith("#") || token.length < 2))
+    || !isSafePublishableCopy([text], input.avoid)) {
+    return null
+  }
+
+  return { data: { section: input.section, text }, usage: payload.usage }
+}
+
+async function readRemoteNaverTitleAndBodyRewrite(
+  response: Response,
+  input: RewriteNaverTitleAndBodyInput,
+): Promise<RemoteResult<RewriteNaverTitleAndBodyOutput> | null> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return null
+  }
+
+  if (!hasExactKeys(payload, ["source", "data", "usage"])
+    || payload.source !== "openai"
+    || !isUsageRecord(payload.usage)
+    || !hasExactKeys(payload.data, ["title", "body"])
+    || typeof payload.data.title !== "string"
+    || typeof payload.data.body !== "string") {
+    return null
+  }
+
+  const title = payload.data.title.trim()
+  const body = payload.data.body.trim()
+  if (!title
+    || !body
+    || title === input.currentTitle.trim()
+    || body === input.currentBody.trim()
+    || body.length < 500
+    || hasPhotoNarration(body)
+    || !isSafePublishableCopy([title, body], input.avoid)) {
+    return null
+  }
+  return { data: { title, body }, usage: payload.usage }
+}
+
+function isUsageRecord(value: unknown): value is UsageRecord {
+  return hasExactKeys(value, [
+    "inputTokens", "cachedInputTokens", "outputTokens", "totalTokens", "estimatedKrw", "requestCount",
+  ])
+    && isNonNegativeSafeInteger(value.inputTokens)
+    && isNonNegativeSafeInteger(value.cachedInputTokens)
+    && value.cachedInputTokens <= value.inputTokens
+    && isNonNegativeSafeInteger(value.outputTokens)
+    && isNonNegativeSafeInteger(value.totalTokens)
+    && value.totalTokens === value.inputTokens + value.outputTokens
+    && isNonNegativeSafeInteger(value.estimatedKrw)
+    && value.requestCount === 1
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+}
+
+function requireRemoteDraftId(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 256) {
+    throw new Error("초안을 확인해 주세요.")
+  }
+  return value
+}
+
+function toRewriteInput(input: RewriteInput, draftId: string): RewriteInput {
+  return {
+    draftId,
+    channel: input.channel,
+    section: input.section,
+    instruction: input.instruction,
+    currentText: input.currentText,
+    memo: input.memo,
+    avoid: input.avoid,
+    tone: input.tone,
+  }
+}
+
+function toNaverTitleAndBodyRewriteInput(input: RewriteNaverTitleAndBodyInput, draftId: string) {
+  return {
+    draftId,
+    kind: "naver-title-body" as const,
+    instruction: input.instruction,
+    currentTitle: input.currentTitle,
+    currentBody: input.currentBody,
+    memo: input.memo,
+    photoContext: input.photoContext,
+    avoid: input.avoid,
+    tone: input.tone,
+  }
+}
+
+function toImageAnalysisInput(input: AnalyzeImagesInput, draftId: string) {
+  return {
+    draftId,
+    memo: input.memo,
+    mustInclude: input.mustInclude,
+    avoid: input.avoid,
+    writingMode: input.writingMode,
+    naverTone: input.naverTone,
+    instagramTone: input.instagramTone,
+    images: input.images.map((image) => ({
+      id: image.id,
+      isCover: image.isCover,
+      sortOrder: image.sortOrder,
+      dataUrl: image.dataUrl,
+    })),
+  }
 }
 
 function toContentInput(channel: Channel, input: ChannelInput) {

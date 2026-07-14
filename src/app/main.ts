@@ -1,6 +1,5 @@
 import { createPinia } from "pinia"
 import { createApp } from "vue"
-import VueKonva from "vue-konva"
 import { registerSW } from "virtual:pwa-register"
 import App from "./App.vue"
 import router from "./router"
@@ -8,4 +7,4 @@ import "./styles.css"
 
 registerSW({ immediate: true })
 
-createApp(App).use(createPinia()).use(router).use(VueKonva).mount("#app")
+createApp(App).use(createPinia()).use(router).mount("#app")

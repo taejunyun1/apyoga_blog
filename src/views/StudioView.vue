@@ -5,30 +5,30 @@ import LogoutButton from "@/features/auth/LogoutButton.vue"
 import BottomActionBar from "@/features/studio/BottomActionBar.vue"
 import ContentBriefReview from "@/features/studio/ContentBriefReview.vue"
 import ErrorBanner from "@/features/studio/ErrorBanner.vue"
-import FaceMaskEditor from "@/features/studio/FaceMaskEditor.vue"
 import GenerationProgress from "@/features/studio/GenerationProgress.vue"
 import MemoToneForm from "@/features/studio/MemoToneForm.vue"
 import PhotoOrganizer from "@/features/studio/PhotoOrganizer.vue"
 import PhotoUploader from "@/features/studio/PhotoUploader.vue"
 import ProgressStepper from "@/features/studio/ProgressStepper.vue"
 import ResultEditor from "@/features/studio/ResultEditor.vue"
+import { rewriteActionKey, rewriteFeedbackFor, type RewritePreview } from "@/features/studio/rewrite-actions"
 import { useAutosave } from "@/features/studio/composables/use-autosave"
 import { useStudioStore } from "@/features/studio/studio-store"
-import type { FaceMask } from "@/domain/studio"
+import type { WorkflowStep } from "@/domain/studio"
 
 const route = useRoute()
 const router = useRouter()
 const store = useStudioStore()
 const error = ref<string | null>(null)
-const activeMaskIndex = ref(0)
 const copyFallback = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 const toastId = ref(0)
+const pendingRewriteKey = ref<string | null>(null)
+const rewritePreviews = ref<Partial<Record<"naver" | "instagram", RewritePreview>>>({})
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 const stopAutosave = useAutosave(store)
 
 const readyImages = computed(() => store.draft?.images.filter((image) => image.status === "ready") ?? [])
-const activeMaskImage = computed(() => readyImages.value[activeMaskIndex.value] ?? null)
 
 onMounted(async () => {
   const draftId = String(route.params.draftId)
@@ -43,11 +43,23 @@ onUnmounted(() => {
   if (toastTimer) clearTimeout(toastTimer)
 })
 
-function showToast(message: string) {
+function clearToast() {
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
+  toastMessage.value = null
+}
+
+function showToast(message: string, options: { persistent?: boolean } = {}) {
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
   toastMessage.value = message
   toastId.value += 1
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastMessage.value = null }, 2400)
+  if (!options.persistent) {
+    toastTimer = setTimeout(() => {
+      toastMessage.value = null
+      toastTimer = null
+    }, 2400)
+  }
 }
 
 async function run(action: () => Promise<unknown>, successMessage?: string) {
@@ -62,17 +74,10 @@ async function run(action: () => Promise<unknown>, successMessage?: string) {
   }
 }
 
-function updateMasks(masks: FaceMask[]) {
-  if (activeMaskImage.value) store.updateMasks(activeMaskImage.value.id, masks)
-}
-
 async function finishCurrentStep() {
   if (!store.draft) return
   if (store.draft.step === "photos") {
-    await run(() => store.beginMasking())
-  } else if (store.draft.step === "mask") {
-    if (activeMaskIndex.value < readyImages.value.length - 1) activeMaskIndex.value += 1
-    else await run(() => store.confirmMasks())
+    await run(() => store.completePhotoSelection())
   } else if (store.draft.step === "organize") {
     store.draft.step = "memo"
     await run(() => store.saveNow())
@@ -80,8 +85,12 @@ async function finishCurrentStep() {
 }
 
 async function submitMemo(value: Parameters<typeof store.updateMemo>[0]) {
+  if (store.busy) return
   store.updateMemo(value)
-  await run(() => store.analyze())
+  showToast("사진과 메모를 분석하고 있어요…", { persistent: true })
+  const completed = await run(() => store.analyze())
+  if (completed) showToast("사진 분석이 완료됐어요")
+  else clearToast()
 }
 
 async function generateChannels() {
@@ -111,7 +120,36 @@ async function copyResult(request: { channel: "naver" | "instagram"; part: "titl
 }
 
 async function rewriteResult(request: { channel: "naver" | "instagram"; section: string; instruction: string }) {
-  await run(() => store.rewrite(request), "문구를 변경했어요")
+  if (pendingRewriteKey.value) return
+  const key = rewriteActionKey(request)
+  pendingRewriteKey.value = key
+  error.value = null
+  try {
+    const rewritten = await store.rewrite(request)
+    const feedback = rewriteFeedbackFor(request)
+    rewritePreviews.value = {
+      ...rewritePreviews.value,
+      [request.channel]: "title" in rewritten && "body" in rewritten
+        ? {
+            kind: "title-body",
+            section: "titleAndBody",
+            label: feedback.preview,
+            title: rewritten.title,
+            body: rewritten.body,
+          }
+        : {
+            kind: "single",
+            section: rewritten.section,
+            label: feedback.preview,
+            text: rewritten.text,
+          }
+    }
+    showToast(feedback.toast)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "문구를 변경하지 못했어요."
+  } finally {
+    pendingRewriteKey.value = null
+  }
 }
 
 async function selectResultOption(request: { channel: "naver" | "instagram"; kind: "title" | "intro" | "hook"; index: number }) {
@@ -128,7 +166,13 @@ async function editResult(request: { channel: "naver" | "instagram"; section: "b
 }
 
 async function finalizeResult() {
-  await run(() => store.finalize(), "작성 이력에 저장했어요")
+  const completed = await run(() => store.finalize())
+  if (!completed) return
+  await router.push({ path: "/", query: { saved: "1" } })
+}
+
+async function navigateToCompletedStep(target: WorkflowStep) {
+  await run(() => store.goToCompletedStep(target))
 }
 </script>
 
@@ -147,7 +191,7 @@ async function finalizeResult() {
       <LogoutButton @error="error = $event" />
     </header>
 
-    <ProgressStepper :current="store.draft.step" />
+    <ProgressStepper :current="store.draft.step" @navigate="navigateToCompletedStep" />
     <ErrorBanner v-if="error" :message="error" @dismiss="error = null" />
 
     <div class="studio-content">
@@ -159,12 +203,6 @@ async function finalizeResult() {
         @retry-image="run(() => store.retryImage($event))"
         @remove-image="run(() => store.removeImage($event))"
       />
-
-      <section v-else-if="store.draft.step === 'mask'" class="mask-step">
-        <p v-if="store.faceDetectionMessage" class="info-banner" role="status">{{ store.faceDetectionMessage }}</p>
-        <FaceMaskEditor v-if="activeMaskImage" :key="activeMaskImage.id" :image="activeMaskImage" @update-masks="updateMasks" />
-        <p v-else class="empty-row">가림을 편집할 사진이 없습니다.</p>
-      </section>
 
       <PhotoOrganizer
         v-else-if="store.draft.step === 'organize'"
@@ -182,12 +220,14 @@ async function finalizeResult() {
         :writing-mode="store.draft.writingMode"
         :naver-tone="store.draft.naverTone"
         :instagram-tone="store.draft.instagramTone"
+        :busy="store.busy"
         @submit="submitMemo"
       />
 
       <ContentBriefReview
         v-else-if="store.draft.step === 'brief' && store.draft.brief"
         :brief="store.draft.brief"
+        :images="store.draft.images"
         :confirmed="store.draft.briefConfirmed"
         :busy="store.busy"
         @update:brief="store.updateBrief"
@@ -203,6 +243,10 @@ async function finalizeResult() {
         :instagram="store.draft.instagram"
         :review="store.draft.review"
         :copy-fallback="copyFallback"
+        :images="store.draft.images"
+        :pending-rewrite-key="pendingRewriteKey"
+        :rewrite-previews="rewritePreviews"
+        :usage="store.draft.usage"
         @retry-channel="retryChannel"
         @rewrite="rewriteResult"
         @select-option="selectResultOption"
@@ -215,17 +259,15 @@ async function finalizeResult() {
       <section v-else class="empty-row">다음 콘텐츠 단계가 준비되었습니다.</section>
     </div>
 
-    <BottomActionBar v-if="['photos', 'mask', 'organize'].includes(store.draft.step)">
+    <BottomActionBar v-if="['photos', 'organize'].includes(store.draft.step)">
       <button
         type="button"
         class="primary-action"
         :disabled="store.busy || (store.draft.step === 'photos' && readyImages.length === 0)"
         @click="finishCurrentStep"
       >
-        <template v-if="store.busy">얼굴 찾는 중…</template>
-        <template v-else-if="store.draft.step === 'photos'">얼굴 가림 확인</template>
-        <template v-else-if="store.draft.step === 'mask' && activeMaskIndex < readyImages.length - 1">다음 사진</template>
-        <template v-else-if="store.draft.step === 'mask'">가림 확인 완료</template>
+        <template v-if="store.busy">사진 준비 중…</template>
+        <template v-else-if="store.draft.step === 'photos'">사진 순서 정하기</template>
         <template v-else>메모 작성하기</template>
       </button>
     </BottomActionBar>

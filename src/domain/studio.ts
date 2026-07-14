@@ -1,22 +1,9 @@
-export type WorkflowStep = "photos" | "mask" | "organize" | "memo" | "brief" | "generating" | "results"
+export type WorkflowStep = "photos" | "organize" | "memo" | "brief" | "generating" | "results"
 export type WritingMode = "auto" | "record" | "essay" | "philosophy" | "body-sense" | "space" | "daily"
 export type Tone = "plain" | "emotional" | "deep"
 export type Channel = "naver" | "instagram"
 export type ChannelStatus = "idle" | "loading" | "success" | "error"
 export type GenerationSource = "openai" | "local-fallback"
-export type MaskStyle = "blur" | "white" | "sticker"
-
-export interface FaceMask {
-  id: string
-  style: MaskStyle
-  x: number
-  y: number
-  width: number
-  height: number
-  rotation: number
-  source: "detected" | "manual"
-}
-
 export interface StudioImage {
   id: string
   name: string
@@ -29,9 +16,6 @@ export interface StudioImage {
   isCover: boolean
   status: "processing" | "ready" | "error"
   error: string | null
-  faceCount: number
-  masks: FaceMask[]
-  maskConfirmedAt: string | null
   createdAt: string
   expiresAt: string
 }
@@ -84,6 +68,15 @@ export interface ChannelResult<T> {
   error: string | null
 }
 
+export interface DraftUsage {
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedKrw: number
+  requestCount: number
+}
+
 export interface StudioDraft {
   id: string
   step: WorkflowStep
@@ -100,6 +93,7 @@ export interface StudioDraft {
   naver: ChannelResult<NaverOutput>
   instagram: ChannelResult<InstagramOutput>
   review: ReviewOutput | null
+  usage: DraftUsage
   createdAt: string
   updatedAt: string
   finalizedAt: string | null
@@ -122,6 +116,14 @@ export function createDraft(now = new Date().toISOString()): StudioDraft {
     naver: { status: "idle", data: null, error: null },
     instagram: { status: "idle", data: null, error: null },
     review: null,
+    usage: {
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedKrw: 0,
+      requestCount: 0,
+    },
     createdAt: now,
     updatedAt: now,
     finalizedAt: null

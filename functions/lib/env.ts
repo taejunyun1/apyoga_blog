@@ -28,6 +28,9 @@ export interface AuthEnv {
 
 export interface ContentEnv extends AuthEnv {
   OPENAI_API_KEY: string
+  OPENAI_INPUT_KRW_PER_MILLION?: string
+  OPENAI_CACHED_INPUT_KRW_PER_MILLION?: string
+  OPENAI_OUTPUT_KRW_PER_MILLION?: string
 }
 
 export interface PagesContext<Env> {

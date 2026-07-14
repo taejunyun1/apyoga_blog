@@ -26,7 +26,7 @@ function expiry(value: string) {
         <img :src="image.thumbnailUrl" alt="" />
         <div class="organizer-list__body">
           <strong>{{ image.name }}</strong>
-          <span>얼굴 {{ image.faceCount }}개 · 가림 {{ image.masks.length }}개</span>
+          <span>{{ image.width }} × {{ image.height }}px</span>
           <small>{{ expiry(image.expiresAt) }} 자동 삭제</small>
         </div>
         <div class="organizer-actions">

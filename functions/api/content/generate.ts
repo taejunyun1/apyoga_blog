@@ -2,8 +2,18 @@ import type { ContentChannel, GenerateContentInput } from "../../lib/content-typ
 import type { ContentEnv, PagesHandler } from "../../lib/env"
 import { isSameOriginJson, json } from "../../lib/http"
 import { OpenAIContentError, requestOpenAIContent } from "../../lib/openai-content"
+import {
+  recordCompletedOpenAIUsage,
+  usageRatesFromEnv,
+} from "../../lib/usage-accounting"
+import {
+  hasExactKeys,
+  isBoundedString,
+  MAX_BODY_BYTES,
+  readJsonBody,
+  RequestBodyTooLargeError,
+} from "../../lib/request-body"
 
-const MAX_BODY_BYTES = 32_768
 const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
   "auto",
   "record",
@@ -15,9 +25,8 @@ const WRITING_MODES = new Set<GenerateContentInput["writingMode"]>([
 ])
 const TONES = new Set<GenerateContentInput["tone"]>(["plain", "emotional", "deep"])
 
-class RequestBodyTooLargeError extends Error {}
-
 interface ContentRequest {
+  draftId: string
   channel: ContentChannel
   input: GenerateContentInput
 }
@@ -47,6 +56,13 @@ export async function handleContentGeneration(
     return json({ message: "AI 설정을 확인해 주세요." }, 500)
   }
 
+  let usageRates
+  try {
+    usageRates = usageRatesFromEnv(env)
+  } catch {
+    return json({ message: "AI 설정을 확인해 주세요." }, 500)
+  }
+
   let parsed: ContentRequest
   try {
     parsed = validateContentRequest(await readJsonBody(request))
@@ -59,13 +75,20 @@ export async function handleContentGeneration(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await dependencies.generate(parsed.channel, parsed.input, env, {
+      const result = await dependencies.generate(parsed.channel, parsed.input, env, {
         safetyIdentifier: await dependencies.safetyIdentifier(),
         retryInstruction: attempt === 1
           ? "이전 결과의 오류를 수정하고 모든 제약을 충족하세요."
           : undefined,
       })
-      return json({ channel: parsed.channel, source: "openai", data })
+      const usage = await recordCompletedOpenAIUsage(
+        env,
+        parsed.draftId,
+        parsed.channel,
+        result.responseUsage,
+        usageRates,
+      )
+      return json({ channel: parsed.channel, source: "openai", data: result.data, usage })
     } catch (error) {
       if (!(error instanceof OpenAIContentError) || !error.retryable) break
     }
@@ -79,54 +102,18 @@ export async function hashedSafetyIdentifier(account: string): Promise<string> {
   return Array.from(new Uint8Array(digest).slice(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
-async function readJsonBody(request: Request): Promise<unknown> {
-  const bytes = await readBoundedBody(request.body)
-  const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-  return JSON.parse(raw)
-}
-
-async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
-  if (!body) throw new Error("missing request body")
-
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      totalBytes += value.byteLength
-      if (totalBytes > MAX_BODY_BYTES) {
-        try {
-          await reader.cancel()
-        } catch {
-          // The body is already rejected; cancellation failure must not change the response.
-        }
-        throw new RequestBodyTooLargeError()
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const bytes = new Uint8Array(totalBytes)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
 function validateContentRequest(value: unknown): ContentRequest {
-  if (!hasExactKeys(value, ["channel", "input"])
+  if (!hasExactKeys(value, ["draftId", "channel", "input"])
+    || !isOpaqueDraftId(value.draftId)
     || (value.channel !== "naver" && value.channel !== "instagram")
     || !isGenerateContentInput(value.input)) {
     throw new Error("invalid content request")
   }
   return value as unknown as ContentRequest
+}
+
+function isOpaqueDraftId(value: unknown): value is string {
+  return isBoundedString(value, 256) && Boolean(value.trim())
 }
 
 function isGenerateContentInput(value: unknown): value is GenerateContentInput {
@@ -166,23 +153,10 @@ function isImageDescription(value: unknown): boolean {
     && typeof value.description === "string"
 }
 
-function isBoundedString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength
-}
-
 function isBoundedStringArray(value: unknown, maxLength: number): value is string[] {
   return Array.isArray(value)
     && value.length <= maxLength
     && value.every((entry) => typeof entry === "string")
-}
-
-function hasExactKeys<const Keys extends readonly string[]>(
-  value: unknown,
-  keys: Keys,
-): value is Record<Keys[number], unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-  const actual = Object.keys(value)
-  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
 }
 
 export const onRequestPost: PagesHandler<ContentEnv> = ({ request, env }) => (

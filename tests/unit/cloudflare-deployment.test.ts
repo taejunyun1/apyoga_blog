@@ -36,6 +36,14 @@ describe("Cloudflare Pages deployment", () => {
       .toContain("CREATE TABLE IF NOT EXISTS auth_credentials")
   })
 
+  it("includes the privacy-safe API usage ledger migration and indexes", () => {
+    const migration = readFileSync(path.join(root, "migrations/0002_api_usage.sql"), "utf8")
+
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS api_usage")
+    expect(migration).toContain("idx_api_usage_draft_id")
+    expect(migration).toContain("idx_api_usage_created_at")
+  })
+
   it("documents mandatory AUTH_DB provisioning, migration, safe inspection, and deploy order", () => {
     const readme = readFileSync(path.join(root, "README.md"), "utf8")
     const create = "npx wrangler d1 create ap-yoga-auth --location apac"
@@ -54,6 +62,37 @@ describe("Cloudflare Pages deployment", () => {
     expect(readme).toContain("콘텐츠·이미지의 D1/R2 서버 저장")
     expect(readme.indexOf(localMigration)).toBeLessThan(readme.indexOf(remoteMigration))
     expect(readme.indexOf(remoteMigration)).toBeLessThan(readme.indexOf(deploy))
+  })
+
+  it("documents API usage migration and administrator pricing configuration before deployment", () => {
+    const readme = readFileSync(path.join(root, "README.md"), "utf8")
+    const remoteMigration = "npx wrangler d1 migrations apply ap-yoga-auth --remote"
+    const deploy = "npm run deploy:cloudflare"
+    const heading = "### AI 사용량 마이그레이션과 추정 비용 설정"
+    const pricingCommands = [
+      "npx wrangler pages secret put OPENAI_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+      "npx wrangler pages secret put OPENAI_CACHED_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+      "npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio",
+    ]
+    const sectionStart = readme.indexOf(heading)
+    const sectionEnd = readme.indexOf("\n```\n", sectionStart) + "\n```".length
+    const usageCostSection = readme.slice(sectionStart, sectionEnd)
+    const migrationIndex = usageCostSection.indexOf(remoteMigration)
+    const deployIndex = usageCostSection.indexOf(deploy)
+
+    expect(usageCostSection).toContain("관리자가 현재 모델 가격을 KRW로 환산")
+    expect(usageCostSection).toContain("추정치")
+    expect(usageCostSection).toContain("이후에 기록되는 행")
+    expect(migrationIndex).toBeGreaterThanOrEqual(0)
+    expect(deployIndex).toBeGreaterThan(migrationIndex)
+    for (const command of pricingCommands) {
+      const commandIndex = usageCostSection.indexOf(command)
+      expect(commandIndex).toBeGreaterThan(migrationIndex)
+      expect(commandIndex).toBeLessThan(deployIndex)
+    }
+    expect(usageCostSection).not.toMatch(/\b(?:sk|rk|sess)-[A-Za-z0-9_-]{8,}\b/)
+    expect(usageCostSection).not.toMatch(/OPENAI_(?:INPUT|CACHED_INPUT|OUTPUT)_KRW_PER_MILLION\s*(?:=|:)\s*\d/)
+    expect(usageCostSection).not.toMatch(/\b(?:\d{3,}\.\d+|\d{1,3}(?:,\d{3})+(?:\.\d+)?)\b/)
   })
 
   it("builds before invoking the checked-in Wrangler CLI", () => {

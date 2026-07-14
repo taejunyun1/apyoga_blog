@@ -100,6 +100,20 @@ npx wrangler d1 execute ap-yoga-auth --remote --command "SELECT id, credential_v
 
 마이그레이션과 안전 조회가 성공한 뒤 프로덕션을 배포합니다.
 
+### AI 사용량 마이그레이션과 추정 비용 설정
+
+`0002_api_usage.sql`은 기존 `ap-yoga-auth` 데이터베이스에 개인정보·콘텐츠를 저장하지 않는 AI 사용량 원장을 추가합니다. 배포할 코드에 이 마이그레이션이 포함되어 있으면 원격 D1 마이그레이션을 먼저 적용하고, 그다음 Pages secret을 설정한 뒤 배포합니다.
+
+관리자가 현재 모델 가격을 KRW로 환산하여 아래 세 rate variable을 대화형 프롬프트에 입력합니다. 실제 rate 값, API key, 그 밖의 자격 증명은 명령 인수·문서·셸 기록에 넣지 마세요. 각 rate variable 값은 토큰 사용량을 KRW로 환산한 추정치이며, rate를 변경해도 이미 저장된 비용은 바뀌지 않고 이후에 기록되는 행에만 적용됩니다.
+
+```bash
+npx wrangler d1 migrations apply ap-yoga-auth --remote
+npx wrangler pages secret put OPENAI_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio
+npx wrangler pages secret put OPENAI_CACHED_INPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio
+npx wrangler pages secret put OPENAI_OUTPUT_KRW_PER_MILLION --project-name ap-yoga-content-studio
+npm run deploy:cloudflare
+```
+
 이 프로젝트는 Cloudflare Pages Direct Upload 방식입니다. `wrangler.jsonc`의 프로젝트명과 `dist` 출력 경로를 사용하며, 아래 명령은 빌드를 먼저 실행한 뒤 `master` 프로덕션 브랜치로 업로드합니다.
 
 ```bash

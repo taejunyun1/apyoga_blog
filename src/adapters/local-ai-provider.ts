@@ -1,4 +1,11 @@
-import type { AIProvider, AnalyzeImagesInput, ChannelInput, RewriteInput, RewriteOutput } from "@/domain/ports"
+import type {
+  AnalyzeImagesInput,
+  ChannelInput,
+  RewriteInput,
+  RewriteNaverTitleAndBodyInput,
+  RewriteNaverTitleAndBodyOutput,
+  RewriteOutput,
+} from "@/domain/ports"
 import type { ContentBrief, InstagramOutput, NaverOutput, ReviewOutput } from "@/domain/studio"
 import {
   assertSafeRequiredPhrase,
@@ -63,14 +70,35 @@ function safeFocuses(input: ChannelInput): string[] {
   return [fallback]
 }
 
+function safeImageDescriptions(input: ChannelInput): Array<{ imageId: string; description: string }> {
+  return input.brief.imageDescriptions
+    .map(({ imageId, description }) => ({ imageId, description: sanitizeLocalFragment(description, input.avoid) }))
+    .filter(({ description }) => description.length >= 4 && isSafePublishableCopy([description], input.avoid))
+}
+
+function emotionalVisualParagraphs(input: ChannelInput): string[] {
+  const mood = sanitizeLocalFragment(input.brief.overallMood, input.avoid) || "차분한"
+  return safeImageDescriptions(input).map(({ description }, index) => {
+    const detail = description
+      .replace(/^\s*(?:\d+|첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째\s*(?:사진|수련)?\s*/u, "")
+      .replace(/^\s*(?:사진|이미지)\s*(?:속|에는|은|는|에서|에|을|를|으로는?)?\s*/u, "")
+      .trim()
+    return index % 2 === 0
+      ? `${detail}에서 느껴지는 빛과 색의 결이 ${mood} 호흡과 어우러져 오늘 수련의 여운을 부드럽게 남겼습니다.`
+      : `${detail}의 공간감은 서두르지 않는 움직임과 이어져, 몸과 마음이 천천히 제자리로 돌아오는 여운을 전해 주었습니다.`
+  })
+}
+
 function naverBody(input: ChannelInput, focus: string, required: string): string {
   const memo = sanitizeLocalFragment(input.memo, input.avoid)
     || safeAlternative(["오늘의 수련을 차분히 돌아보았습니다.", "함께한 움직임을 천천히 기록했습니다."], input.avoid)
+  const visualParagraphs = emotionalVisualParagraphs(input)
   const paragraphs = [
     `오늘은 ${focus}에 천천히 주의를 기울이며 수련을 시작했습니다. ${required}을 따라 서두르지 않고 몸과 마음이 현재에 도착할 시간을 충분히 두었습니다.`,
     `${memo}라는 기록을 바탕으로 각 동작의 크기보다 움직임이 이어지는 과정과 그 사이의 여백을 살펴보았습니다.`,
+    ...visualParagraphs,
     `숨을 들이쉴 때와 내쉴 때 달라지는 감각을 관찰하며 ${focus} 주변의 긴장을 억지로 밀어내지 않고 각자의 편안한 범위 안에서 움직였습니다.`,
-    "사진에 담긴 장면마다 완성된 모양보다 집중하는 표정과 안정된 리듬이 먼저 보였습니다. 서로의 속도를 존중하니 수련 공간도 한결 차분해졌습니다.",
+    "공간에 번진 빛과 소도구의 색은 호흡의 속도와 자연스럽게 어우러졌습니다. 눈에 머문 작은 결을 따라가니 수련 뒤의 고요도 한층 오래 이어졌습니다.",
     "수련이 깊어질수록 큰 변화보다 작고 분명한 신호를 알아차리는 일이 중요하다는 것을 다시 확인했습니다. 잠시 쉬는 선택도 오늘의 몸에 맞는 좋은 움직임이 될 수 있습니다.",
     "마무리에서는 처음과 달라진 호흡과 바닥에 닿는 감각을 천천히 확인했습니다. 일상으로 돌아간 뒤에도 오늘 발견한 편안한 리듬을 짧게 떠올려 보세요.",
     `호흡의 길이를 일부러 바꾸기보다 자연스럽게 이어지는 흐름을 지켜보았습니다. 들숨과 날숨 사이에 생기는 작은 쉼도 수련의 일부로 받아들였습니다.`,
@@ -102,7 +130,7 @@ function naverBody(input: ChannelInput, focus: string, required: string): string
   return body
 }
 
-export class LocalAIProvider implements AIProvider {
+export class LocalAIProvider {
   async analyzeImages(input: AnalyzeImagesInput): Promise<ContentBrief> {
     const cleanedMemo = sanitizeLocalFragment(input.memo, input.avoid)
     const bodyFocus = detectBodyFocus(cleanedMemo)
@@ -142,10 +170,11 @@ export class LocalAIProvider implements AIProvider {
       `바쁜 하루 끝, ${required}에 잠시 머물렀습니다.`,
       `${focus}의 감각을 차분하게 살펴본 시간이었어요.`
     ].map((copy) => sanitizeLocalFragment(copy, input.avoid))
+    const descriptions = new Map(safeImageDescriptions(input).map((item) => [item.imageId, item.description]))
     const imagePlacements = input.brief.recommendedImageOrder.map((imageId, index) => ({
       imageId,
       afterParagraph: Math.min(index + 1, 3),
-      caption: sanitizeLocalFragment(`${focus}의 감각을 살펴보는 수련 장면`, input.avoid)
+      caption: descriptions.get(imageId) ?? sanitizeLocalFragment(`${focus}의 감각을 살펴보는 수련 장면`, input.avoid)
     }))
     const outputHashtags = hashtags(focuses, input.avoid)
     const classInfo = sanitizeLocalFragment("수업·예약 정보는 게시 전에 최신 내용을 확인해 주세요.", input.avoid)
@@ -182,8 +211,9 @@ export class LocalAIProvider implements AIProvider {
     const focuses = safeFocuses(input)
     const focus = focuses.join("과 ")
     const required = requiredPhrase(input)
+    const visualMood = emotionalVisualParagraphs(input).join(" ")
     const captionLong = sanitizeLocalFragment(
-      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
+      `오늘의 수련은 ${focus}에서 시작했습니다.\n\n${visualMood}\n\n${required}을 따라 천천히 움직이며, 몸이 건네는 작은 신호에 귀 기울였어요. 완벽한 모양보다 지금의 감각에 머무는 시간. 오늘의 고요를 일상에도 가볍게 이어가 보세요.`,
       input.avoid
     )
     const captionShort = sanitizeLocalFragment(`${focus}의 감각을 깨우며 ${required}에 머문 오늘의 수련.`, input.avoid)
@@ -218,10 +248,10 @@ export class LocalAIProvider implements AIProvider {
       if (!isSafePublishableCopy([current], input.avoid)) {
         throw new Error("금지 표현 또는 의료적 단정이 있는 본문은 안전하게 재작성할 수 없어요.")
       }
-      const rawAdditions = input.instruction.includes("사진 설명")
+      const rawAdditions = input.instruction.includes("사진 분위기")
         ? [
-            "사진 속에서는 동작의 완성보다 시선이 머무는 방향과 손발이 바닥을 누르는 모습, 움직임 사이에 잠시 쉬어 가는 장면을 차분하게 살펴볼 수 있습니다.",
-            "각 장면에 담긴 손의 위치와 발의 간격, 호흡을 고르는 순간을 따라가며 수련의 흐름을 구체적으로 기록했습니다."
+            "공간에 스민 빛과 소도구의 색이 호흡의 리듬과 어우러지며, 수련이 끝난 뒤에도 잔잔한 여운을 남겼습니다.",
+            "눈에 머문 색감과 바닥의 결을 따라 오늘의 움직임을 돌아보니, 고요한 순간이 일상으로 천천히 이어지는 듯했습니다."
           ]
         : [
             "이번 기록은 추상적인 해석보다 발바닥이 바닥에 닿는 느낌과 호흡의 속도처럼 수업에서 직접 관찰한 장면을 중심으로 담았습니다.",
@@ -281,9 +311,48 @@ export class LocalAIProvider implements AIProvider {
     }
   }
 
-  async review(input: { text: string; maskedFacesConfirmed: boolean }): Promise<ReviewOutput> {
-    const result = reviewText(input.text)
-    const privacyWarnings = input.maskedFacesConfirmed ? [] : ["얼굴 가림을 다시 확인해 주세요."]
-    return { ...result, privacyWarnings, passed: result.passed && privacyWarnings.length === 0 }
+  async rewriteNaverTitleAndBody(
+    input: RewriteNaverTitleAndBodyInput,
+  ): Promise<RewriteNaverTitleAndBodyOutput> {
+    const currentTitle = input.currentTitle.trim()
+    const currentBody = input.currentBody.trim()
+    if (!currentTitle || !currentBody || currentBody.length < NAVER_MIN_LENGTH) {
+      throw new Error("네이버 제목과 500자 이상의 본문이 필요해요.")
+    }
+    if (!isSafePublishableCopy([currentTitle, currentBody], input.avoid)) {
+      throw new Error("금지 표현 또는 의료적 단정이 있는 문구는 안전하게 재작성할 수 없어요.")
+    }
+
+    const memo = `${input.memo}\n${input.photoContext}`
+    const [title, body] = await Promise.all([
+      this.rewriteSection({
+        channel: "naver",
+        section: "title",
+        currentText: currentTitle,
+        instruction: input.instruction,
+        memo,
+        avoid: input.avoid,
+        tone: input.tone,
+      }),
+      this.rewriteSection({
+        channel: "naver",
+        section: "body",
+        currentText: currentBody,
+        instruction: "사진 분위기 더하기",
+        memo,
+        avoid: input.avoid,
+        tone: input.tone,
+      }),
+    ])
+
+    if (!title.text.trim() || !body.text.trim() || body.text.trim().length < NAVER_MIN_LENGTH
+      || !isSafePublishableCopy([title.text, body.text], input.avoid)) {
+      throw new Error("안전한 제목과 본문을 함께 만들지 못했어요.")
+    }
+    return { title: title.text.trim(), body: body.text.trim() }
+  }
+
+  async review(input: { text: string }): Promise<ReviewOutput> {
+    return reviewText(input.text)
   }
 }

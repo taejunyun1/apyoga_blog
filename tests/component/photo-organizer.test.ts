@@ -15,13 +15,11 @@ describe("PhotoOrganizer", () => {
     expect(emitted()["set-cover"]?.[0]).toEqual([images[1].id])
   })
 
-  it("shows face-mask confirmation and expiry for every photo", () => {
+  it("shows image dimensions and expiry for every photo", () => {
     const [image] = studioImages(1)
-    image.faceCount = 2
-    image.masks = [{ id: "mask-1", style: "blur", x: 0.1, y: 0.1, width: 0.2, height: 0.2, rotation: 0, source: "detected" }]
     render(PhotoOrganizer, { props: { images: [image] } })
 
-    expect(screen.getByText("얼굴 2개 · 가림 1개")).toBeTruthy()
+    expect(screen.getByText("1200 × 900px")).toBeTruthy()
     expect(screen.getByText(/7월 16일/)).toBeTruthy()
   })
 })
