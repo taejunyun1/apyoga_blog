@@ -100,11 +100,11 @@ export const useStudioStore = defineStore("studio", () => {
     current.review = await services.ai.review({ text: publishableText(current) })
   }
 
-  async function persistNow() {
-    if (!draft.value) return
+  async function persistNow(value = draft.value) {
+    if (!value) return
     saveStatus.value = "saving"
     try {
-      await services.repository.saveDraft(draft.value)
+      await services.repository.saveDraft(value)
       lastSavedAt.value = new Date().toISOString()
       saveStatus.value = "saved"
     } catch (error) {
@@ -568,16 +568,11 @@ export const useStudioStore = defineStore("studio", () => {
       if (!draft.value || !canGoToPriorStep(draft.value.step, target)) {
         throw new Error("완료한 이전 단계로만 이동할 수 있어요.")
       }
-      const before = { step: draft.value.step, updatedAt: draft.value.updatedAt }
-      draft.value.step = target
-      draft.value.updatedAt = new Date().toISOString()
-      try {
-        await persistNow()
-      } catch (error) {
-        draft.value.step = before.step
-        draft.value.updatedAt = before.updatedAt
-        throw error
-      }
+      const next = snapshotValue(draft.value)
+      next.step = target
+      next.updatedAt = new Date().toISOString()
+      await persistNow(next)
+      draft.value = next
     })
   }
 

@@ -249,6 +249,42 @@ describe("studio workflow store", () => {
     await expect(store.goToCompletedStep("generating")).rejects.toThrow("이동할 수 없어요")
   })
 
+  it("publishes a prior stable step only after its deferred persistence succeeds", async () => {
+    const saveStarted = deferred<void>()
+    const releaseSave = deferred<void>()
+    class DeferredSaveRepository extends InMemoryRepository {
+      deferNextSave = false
+
+      override async saveDraft(...args: Parameters<InMemoryRepository["saveDraft"]>) {
+        if (this.deferNextSave) {
+          this.deferNextSave = false
+          saveStarted.resolve()
+          await releaseSave.promise
+        }
+        return super.saveDraft(...args)
+      }
+    }
+
+    const repository = new DeferredSaveRepository()
+    configureStudioServices({ repository })
+    const store = useStudioStore()
+    store.draft = { ...readyDraft(), step: "results", updatedAt: "2026-07-14T00:00:00.000Z" }
+    await repository.saveDraft(store.draft)
+    repository.deferNextSave = true
+
+    const navigation = store.goToCompletedStep("memo")
+    await saveStarted.promise
+
+    expect(store.draft).toMatchObject({ step: "results", updatedAt: "2026-07-14T00:00:00.000Z" })
+    expect(repository.drafts.get(store.draft!.id)).toMatchObject({ step: "results", updatedAt: "2026-07-14T00:00:00.000Z" })
+
+    releaseSave.resolve()
+    await navigation
+
+    expect(store.draft?.step).toBe("memo")
+    expect(repository.drafts.get(store.draft!.id)?.step).toBe("memo")
+  })
+
   it("restores the prior stable step when its persistence fails", async () => {
     class FailingRepository extends InMemoryRepository {
       failNextSave = false
